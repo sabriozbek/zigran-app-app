@@ -1,29 +1,49 @@
 {
   "expo": {
-    "name": "zigran-app",
-    "slug": "zigran-app",
+    "name": "Zigran",
+    "slug": "zigran",
     "version": "1.0.0",
     "orientation": "portrait",
+    "scheme": "zigran",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#000000"
     },
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/icon2.png",
+        "backgroundColor": "#000000"
       },
-      "edgeToEdgeEnabled": true
+      "softwareKeyboardLayoutMode": "resize",
+      "edgeToEdgeEnabled": true,
+      "package": "com.zigran",
+      "icon": "./assets/icon2.png",
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "POST_NOTIFICATIONS"
+      ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/icon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-web-browser",
+      "expo-notifications"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "be0f6eae-8de8-451a-ad08-0242e2f0aa03"
+      }
+    },
+    "owner": "sabirya"
   }
 }

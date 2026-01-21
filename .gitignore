@@ -8,6 +8,7 @@ node_modules/
 dist/
 web-build/
 expo-env.d.ts
+web-reference/
 
 # Native
 .kotlin/
