@@ -14,6 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../api/authService';
 import apiClient from '../api/client';
 import { useTheme } from '../theme/ThemeContext';
@@ -29,6 +30,7 @@ const CompanyScreen = ({ navigation, route }) => {
   const [teams, setTeams] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [plans, setPlans] = useState([]);
+  const [activePlanDetails, setActivePlanDetails] = useState(null);
   const [billingCycle, setBillingCycle] = useState('monthly');
   const [savingAccount, setSavingAccount] = useState(false);
   const [inviting, setInviting] = useState(false);
@@ -106,6 +108,16 @@ const CompanyScreen = ({ navigation, route }) => {
       setTeams(nextTeams);
       setInvoices(nextInvoices);
       setPlans(nextPlans);
+
+      const company = nextMe?.company ?? nextMe?.tenant ?? nextMe?.organization ?? null;
+      const rawPlan = String(nextAccount?.plan || company?.plan?.id || company?.plan?.name || company?.plan || company?.package || company?.subscription || 'free').toLowerCase();
+      const currentPlanId = rawPlan === 'business' ? 'enterprise' : rawPlan;
+      if (currentPlanId) {
+        const planRes = await apiClient.get(`/plans/${encodeURIComponent(currentPlanId)}`).catch(() => null);
+        setActivePlanDetails(planRes?.data ?? null);
+      } else {
+        setActivePlanDetails(null);
+      }
 
       if (!opts?.silent) setLoading(false);
       return { me: nextMe, account: nextAccount, users: nextUsers, teams: nextTeams, invoices: nextInvoices, plans: nextPlans };
@@ -458,6 +470,11 @@ const CompanyScreen = ({ navigation, route }) => {
             const displayPrice = isFree ? 0 : billingCycle === 'yearly' ? Number(pkg?.priceYearly || Math.round(basePrice * 12 * 0.7)) : basePrice;
             const disabled = isCurrent || isPending;
             const planId = String(pkg?.id || '').trim();
+            const features = Array.isArray(pkg?.features)
+              ? pkg.features
+              : isCurrent && Array.isArray(activePlanDetails?.features)
+                ? activePlanDetails.features
+                : [];
 
             return (
               <View key={id} style={[styles.planCard, isCurrent ? styles.planCardActive : null]}>
@@ -472,6 +489,20 @@ const CompanyScreen = ({ navigation, route }) => {
                   <Text style={styles.planDesc} numberOfLines={2}>
                     {String(pkg.description)}
                   </Text>
+                ) : null}
+
+                {features.length > 0 ? (
+                  <View style={styles.planFeatures}>
+                    {features.slice(0, 5).map((feat, fIdx) => (
+                      <View key={String(fIdx)} style={styles.featureRow}>
+                        <Ionicons name="checkmark-circle-outline" size={14} color={colors.primary} />
+                        <Text style={styles.featureText} numberOfLines={1}>
+                          {String(feat)}
+                        </Text>
+                      </View>
+                    ))}
+                    {features.length > 5 ? <Text style={styles.featureMore}>+{features.length - 5} özellik</Text> : null}
+                  </View>
                 ) : null}
 
                 <TouchableOpacity
@@ -500,7 +531,20 @@ const CompanyScreen = ({ navigation, route }) => {
         </View>
       </View>
     );
-  }, [account?.pendingPlan, account?.plan, account?.requestedPlan, billingCycle, colors.primary, openCheckout, paying, plan, plans, styles, submitPlanChange]);
+  }, [
+    account?.pendingPlan,
+    account?.plan,
+    account?.requestedPlan,
+    activePlanDetails?.features,
+    billingCycle,
+    colors.primary,
+    openCheckout,
+    paying,
+    plan,
+    plans,
+    styles,
+    submitPlanChange,
+  ]);
 
   const renderBilling = useCallback(() => {
     const currentPlanRaw = String(account?.plan || plan?.name || plan?.title || plan || 'free').toLowerCase();
@@ -1409,6 +1453,27 @@ function createStyles(colors) {
       fontSize: 11,
       fontWeight: '700',
       lineHeight: 16,
+    },
+    planFeatures: {
+      marginTop: 8,
+      gap: 6,
+    },
+    featureRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    featureText: {
+      flex: 1,
+      minWidth: 0,
+      color: colors.textSecondary,
+      fontSize: 11,
+      fontWeight: '800',
+    },
+    featureMore: {
+      color: colors.textSecondary,
+      fontSize: 11,
+      fontWeight: '900',
     },
     table: {
       marginTop: 12,

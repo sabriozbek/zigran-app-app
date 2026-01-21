@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  NativeModules,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -13,7 +14,6 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Notifications from 'expo-notifications';
 import * as SecureStore from 'expo-secure-store';
 import apiClient from '../api/client';
 import { useTheme } from '../theme/ThemeContext';
@@ -38,6 +38,9 @@ const DEFAULT_TIMEZONES = [
 ];
 
 const NOTIFICATIONS_PERMISSION_KEY = 'zigran_notifications_permission';
+
+const isExpoGo =
+  String(NativeModules?.ExponentConstants?.appOwnership || NativeModules?.ExpoConstants?.appOwnership || '').toLowerCase() === 'expo';
 
 const SettingsScreen = ({ navigation, route }) => {
   const { colors, isDark, toggleTheme, paletteId, palettes, setPaletteId } = useTheme();
@@ -240,6 +243,11 @@ const SettingsScreen = ({ navigation, route }) => {
 
     (async () => {
       try {
+        if (isExpoGo) {
+          Alert.alert('Bilgi', 'Expo Go üzerinde push bildirimleri desteklenmiyor. Development build kullanın.');
+          return;
+        }
+        const Notifications = await import('expo-notifications');
         const existing = await Notifications.getPermissionsAsync();
         let status = existing?.status;
         if (status !== 'granted') {

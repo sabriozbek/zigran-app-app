@@ -50,6 +50,32 @@ function normalizeStatus(value) {
   return s;
 }
 
+function pickText(...values) {
+  for (const v of values) {
+    if (typeof v === 'string' && v.trim()) return v.trim();
+    if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  }
+  return '';
+}
+
+function normalizePriority(value) {
+  const s = String(value || '').trim().toLowerCase();
+  if (!s) return 'normal';
+  if (s === 'low' || s === 'düşük' || s === 'dusuk') return 'low';
+  if (s === 'high' || s === 'yüksek' || s === 'yuksek') return 'high';
+  if (s === 'critical' || s === 'kritik') return 'critical';
+  if (s === 'normal' || s === 'medium' || s === 'orta') return 'normal';
+  return s;
+}
+
+function priorityUi(priority, colors) {
+  const p = normalizePriority(priority);
+  if (p === 'critical') return { label: 'Kritik', color: colors.error, icon: 'warning-outline' };
+  if (p === 'high') return { label: 'Yüksek', color: colors.warning, icon: 'arrow-up-outline' };
+  if (p === 'low') return { label: 'Düşük', color: colors.textSecondary, icon: 'arrow-down-outline' };
+  return { label: 'Normal', color: colors.primary, icon: 'remove-outline' };
+}
+
 export default function TicketsScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -342,8 +368,24 @@ export default function TicketsScreen() {
             const id = String(item?.id ?? item?.ticketId ?? item?._id ?? '');
             const subject = String(item?.subject ?? item?.title ?? 'Destek Talebi');
             const status = statusUi(item?.status ?? item?.state);
-            const updatedAt = item?.updatedAt ?? item?.updated_at ?? item?.createdAt ?? item?.created_at;
+            const createdAt = item?.createdAt ?? item?.created_at;
+            const updatedAt = item?.updatedAt ?? item?.updated_at ?? createdAt;
             const category = String(item?.category ?? 'Genel');
+            const priority = priorityUi(item?.priority ?? item?.severity, colors);
+            const assignee =
+              item?.assignee?.name ??
+              item?.assignedTo?.name ??
+              item?.assigned_to?.name ??
+              item?.assignedToName ??
+              item?.assigneeName ??
+              '';
+            const preview = pickText(item?.preview, item?.lastMessage, item?.last_message, item?.message, item?.description, item?.body);
+            const attachmentsCount = Array.isArray(item?.attachments)
+              ? item.attachments.length
+              : Array.isArray(item?.files)
+                ? item.files.length
+                : Number(item?.attachmentsCount ?? item?.attachments_count ?? 0);
+            const messagesCount = Number(item?.messagesCount ?? item?.messages_count ?? item?.repliesCount ?? item?.replies_count ?? item?.commentsCount ?? item?.comments_count ?? 0);
             return (
               <AppCard style={styles.ticketCard} onPress={() => openDetail(item)} accessibilityLabel={`${subject} talebi`}>
                 <View style={styles.ticketTop}>
@@ -358,6 +400,67 @@ export default function TicketsScreen() {
                   <View style={[styles.statusPill, { backgroundColor: status.color + '12', borderColor: status.color + '3A' }]}>
                     <Ionicons name={safeIoniconName(status.icon, 'help-circle-outline')} size={14} color={status.color} />
                     <Text style={[styles.statusText, { color: status.color }]}>{status.label}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.ticketDivider} />
+
+                <View style={styles.ticketDetails}>
+                  {preview ? (
+                    <Text style={styles.ticketPreview} numberOfLines={2}>
+                      {preview}
+                    </Text>
+                  ) : null}
+
+                  <View style={styles.ticketPills}>
+                    <View style={[styles.detailPill, { borderColor: priority.color + '33', backgroundColor: priority.color + '12' }]}>
+                      <Ionicons name={safeIoniconName(priority.icon, 'alert-circle-outline')} size={14} color={priority.color} />
+                      <Text style={[styles.detailPillText, { color: priority.color }]} numberOfLines={1}>
+                        {priority.label}
+                      </Text>
+                    </View>
+
+                    {assignee ? (
+                      <View style={styles.detailPill}>
+                        <Ionicons name={safeIoniconName('person-outline', 'person-outline')} size={14} color={colors.textSecondary} />
+                        <Text style={styles.detailPillText} numberOfLines={1}>
+                          {String(assignee)}
+                        </Text>
+                      </View>
+                    ) : null}
+
+                    {Number(messagesCount) > 0 ? (
+                      <View style={styles.detailPill}>
+                        <Ionicons name={safeIoniconName('chatbox-ellipses-outline', 'chatbox-ellipses-outline')} size={14} color={colors.textSecondary} />
+                        <Text style={styles.detailPillText} numberOfLines={1}>
+                          {String(messagesCount)}
+                        </Text>
+                      </View>
+                    ) : null}
+
+                    {Number(attachmentsCount) > 0 ? (
+                      <View style={styles.detailPill}>
+                        <Ionicons name={safeIoniconName('attach-outline', 'attach-outline')} size={14} color={colors.textSecondary} />
+                        <Text style={styles.detailPillText} numberOfLines={1}>
+                          {String(attachmentsCount)}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+
+                  <View style={styles.ticketMetaRow}>
+                    <View style={styles.ticketMetaItem}>
+                      <Ionicons name={safeIoniconName('time-outline', 'time-outline')} size={14} color={colors.textSecondary} />
+                      <Text style={styles.ticketMetaText} numberOfLines={1}>
+                        Oluşturuldu: {formatDate(createdAt)}
+                      </Text>
+                    </View>
+                    <View style={styles.ticketMetaItem}>
+                      <Ionicons name={safeIoniconName('refresh-outline', 'refresh-outline')} size={14} color={colors.textSecondary} />
+                      <Text style={styles.ticketMetaText} numberOfLines={1}>
+                        Güncellendi: {formatDate(updatedAt)}
+                      </Text>
+                    </View>
                   </View>
                 </View>
               </AppCard>
@@ -512,6 +615,26 @@ function createStyles(colors) {
     ticketTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
     ticketTitle: { color: colors.textPrimary, fontWeight: '900', fontSize: 15 },
     smallMuted: { marginTop: 4, color: colors.textSecondary, fontWeight: '700' },
+    ticketDivider: { height: 1, backgroundColor: colors.border, opacity: 0.7, marginTop: 12 },
+    ticketDetails: { marginTop: 12, gap: 10 },
+    ticketPreview: { color: colors.textPrimary, fontWeight: '700', fontSize: 13, lineHeight: 18, opacity: 0.95 },
+    ticketPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    detailPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      maxWidth: '100%',
+    },
+    detailPillText: { color: colors.textSecondary, fontWeight: '900', fontSize: 12, maxWidth: 190 },
+    ticketMetaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+    ticketMetaItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    ticketMetaText: { color: colors.textSecondary, fontWeight: '800', fontSize: 11 },
     statusPill: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1 },
     statusText: { fontWeight: '900', fontSize: 12 },
 
@@ -561,4 +684,3 @@ function createStyles(colors) {
     disabled: { opacity: 0.6 },
   });
 }
-

@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
-import { View, ActivityIndicator, Image, StyleSheet } from 'react-native';
-import * as Notifications from 'expo-notifications';
+import { ActivityIndicator, Image, NativeModules, StyleSheet, View } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { authService } from '../api/authService';
 import { useTheme } from '../theme/ThemeContext';
@@ -9,6 +8,9 @@ const ONBOARDING_KEY = 'zigran_onboarding_done';
 const NOTIFICATIONS_PERMISSION_KEY = 'zigran_notifications_permission';
 
 const LOGO_SOURCE = require('../../assets/icon.png');
+
+const isExpoGo =
+  String(NativeModules?.ExponentConstants?.appOwnership || NativeModules?.ExpoConstants?.appOwnership || '').toLowerCase() === 'expo';
 
 const StartupScreen = ({ navigation }) => {
   const { colors } = useTheme();
@@ -26,12 +28,11 @@ const StartupScreen = ({ navigation }) => {
 
         try {
           const stored = await SecureStore.getItemAsync(NOTIFICATIONS_PERMISSION_KEY);
-          if (!stored) {
+          if (!stored && !isExpoGo) {
+            const Notifications = await import('expo-notifications');
             const existing = await Notifications.getPermissionsAsync();
             const existingStatus = existing?.status;
-            if (existingStatus) {
-              await SecureStore.setItemAsync(NOTIFICATIONS_PERMISSION_KEY, String(existingStatus));
-            }
+            if (existingStatus) await SecureStore.setItemAsync(NOTIFICATIONS_PERMISSION_KEY, String(existingStatus));
             if (existingStatus !== 'granted') {
               const req = await Notifications.requestPermissionsAsync();
               const nextStatus = req?.status;
