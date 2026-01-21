@@ -879,67 +879,76 @@ const CompanyScreen = ({ navigation, route }) => {
           })
         )}
 
-        <Modal visible={teamModalOpen} transparent animationType="fade" onRequestClose={() => setTeamModalOpen(false)}>
-          <Pressable style={styles.modalOverlay} onPress={() => setTeamModalOpen(false)}>
-            <Pressable style={styles.modalCard} onPress={() => {}}>
-              <Text style={styles.modalTitle}>Yeni Ekip Oluştur</Text>
+        <Modal visible={teamModalOpen} transparent animationType="fade" onRequestClose={() => (creatingTeam ? null : setTeamModalOpen(false))}>
+          <Pressable style={styles.modalOverlay} onPress={() => (creatingTeam ? null : setTeamModalOpen(false))}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.select({ ios: 0, android: 18 })} style={{ width: '100%' }}>
+              <Pressable style={styles.modalCard} onPress={() => {}}>
+                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                  <Text style={styles.modalTitle}>Yeni Ekip Oluştur</Text>
 
-              <Text style={styles.label}>Ekip Adı</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Örn. Pazarlama"
-                placeholderTextColor={colors.textSecondary}
-                value={newTeamName}
-                onChangeText={setNewTeamName}
-              />
+                  <Text style={styles.label}>Ekip Adı</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Örn. Pazarlama"
+                    placeholderTextColor={colors.textSecondary}
+                    value={newTeamName}
+                    onChangeText={setNewTeamName}
+                  />
 
-              <Text style={styles.label}>Açıklama</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Ekip hakkında kısa bilgi"
-                placeholderTextColor={colors.textSecondary}
-                value={newTeamDesc}
-                onChangeText={setNewTeamDesc}
-              />
+                  <Text style={styles.label}>Açıklama</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Ekip hakkında kısa bilgi"
+                    placeholderTextColor={colors.textSecondary}
+                    value={newTeamDesc}
+                    onChangeText={setNewTeamDesc}
+                  />
 
-              <Text style={styles.label}>Önerilen Ekipler</Text>
-              <View style={styles.wrapRow}>
-                {predefinedTeams.map((t) => (
-                  <TouchableOpacity key={t} style={styles.badge} activeOpacity={0.85} onPress={() => setNewTeamName(t)}>
-                    <Text style={styles.badgeText}>{t}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+                  <Text style={styles.label}>Önerilen Ekipler</Text>
+                  <View style={styles.wrapRow}>
+                    {predefinedTeams.map((t) => (
+                      <TouchableOpacity key={t} style={styles.badge} activeOpacity={0.85} onPress={() => setNewTeamName(t)}>
+                        <Text style={styles.badgeText}>{t}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
 
-              <View style={styles.modalActions}>
-                <TouchableOpacity style={styles.secondaryButton} activeOpacity={0.85} onPress={() => setTeamModalOpen(false)}>
-                  <Text style={styles.secondaryButtonText}>Vazgeç</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.primaryButton, creatingTeam || !newTeamName.trim() ? styles.buttonDisabled : null]}
-                  activeOpacity={0.85}
-                  disabled={creatingTeam || !newTeamName.trim()}
-                  onPress={async () => {
-                    setCreatingTeam(true);
-                    try {
-                      await apiClient.post('/teams', { name: newTeamName.trim(), description: newTeamDesc.trim() });
-                      setNewTeamName('');
-                      setNewTeamDesc('');
-                      setTeamModalOpen(false);
-                      await refreshTeams();
-                      await refreshUsers();
-                      Alert.alert('Ekip oluşturuldu', 'Yeni ekip kaydedildi.');
-                    } catch {
-                      Alert.alert('Hata', 'Ekip oluşturulamadı.');
-                    } finally {
-                      setCreatingTeam(false);
-                    }
-                  }}
-                >
-                  <Text style={styles.primaryButtonText}>{creatingTeam ? 'Oluşturuluyor...' : 'Oluştur'}</Text>
-                </TouchableOpacity>
-              </View>
-            </Pressable>
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={[styles.secondaryButton, styles.modalActionButton, creatingTeam ? styles.buttonDisabled : null]}
+                      activeOpacity={0.85}
+                      disabled={creatingTeam}
+                      onPress={() => setTeamModalOpen(false)}
+                    >
+                      <Text style={styles.secondaryButtonText}>Vazgeç</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.primaryButton, styles.modalActionButton, creatingTeam || !newTeamName.trim() ? styles.buttonDisabled : null]}
+                      activeOpacity={0.85}
+                      disabled={creatingTeam || !newTeamName.trim()}
+                      onPress={async () => {
+                        setCreatingTeam(true);
+                        try {
+                          await apiClient.post('/teams', { name: newTeamName.trim(), description: newTeamDesc.trim() });
+                          setNewTeamName('');
+                          setNewTeamDesc('');
+                          setTeamModalOpen(false);
+                          await refreshTeams();
+                          await refreshUsers();
+                          Alert.alert('Ekip oluşturuldu', 'Yeni ekip kaydedildi.');
+                        } catch {
+                          Alert.alert('Hata', 'Ekip oluşturulamadı.');
+                        } finally {
+                          setCreatingTeam(false);
+                        }
+                      }}
+                    >
+                      <Text style={styles.primaryButtonText}>{creatingTeam ? 'Oluşturuluyor...' : 'Oluştur'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </ScrollView>
+              </Pressable>
+            </KeyboardAvoidingView>
           </Pressable>
         </Modal>
 
@@ -1148,7 +1157,7 @@ const CompanyScreen = ({ navigation, route }) => {
 
               <View style={styles.modalActions}>
                 <TouchableOpacity
-                  style={[styles.secondaryButton, paying ? styles.buttonDisabled : null]}
+                  style={[styles.secondaryButton, styles.modalActionButton, paying ? styles.buttonDisabled : null]}
                   activeOpacity={0.85}
                   disabled={paying}
                   onPress={closeCheckout}
@@ -1156,7 +1165,7 @@ const CompanyScreen = ({ navigation, route }) => {
                   <Text style={styles.secondaryButtonText}>Vazgeç</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.primaryButton, paying ? styles.buttonDisabled : null]}
+                  style={[styles.primaryButton, styles.modalActionButton, paying ? styles.buttonDisabled : null]}
                   activeOpacity={0.85}
                   disabled={paying}
                   onPress={confirmCheckout}
@@ -1755,6 +1764,7 @@ function createStyles(colors) {
     modalCard: {
       width: '100%',
       maxWidth: 520,
+      maxHeight: '92%',
       backgroundColor: colors.surface,
       borderRadius: 16,
       borderWidth: 1,
@@ -1772,8 +1782,11 @@ function createStyles(colors) {
       marginTop: 10,
       flexDirection: 'row',
       gap: 10,
-      justifyContent: 'flex-end',
-      flexWrap: 'wrap',
+      justifyContent: 'space-between',
+    },
+    modalActionButton: {
+      flex: 1,
+      marginTop: 0,
     },
     wrapRow: {
       marginTop: 8,
