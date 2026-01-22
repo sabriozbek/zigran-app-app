@@ -51,6 +51,15 @@ export const ticketsService = {
     ]);
   },
 
+  update: async (ticketId, payload) => {
+    const id = String(ticketId || '').trim();
+    if (!id) return null;
+    return requestWithFallback([
+      { method: 'patch', url: `/support/tickets/${encodeURIComponent(id)}`, data: payload || {} },
+      { method: 'patch', url: `/tickets/${encodeURIComponent(id)}`, data: payload || {} },
+    ]);
+  },
+
   reply: async (ticketId, payload) => {
     const id = String(ticketId || '').trim();
     if (!id) return null;
@@ -59,6 +68,20 @@ export const ticketsService = {
       { method: 'post', url: `/support/tickets/${encodeURIComponent(id)}/messages`, data: payload },
       { method: 'post', url: `/tickets/${encodeURIComponent(id)}/reply`, data: payload },
       { method: 'post', url: `/tickets/${encodeURIComponent(id)}/messages`, data: payload },
+    ]);
+  },
+
+  sendEmail: async (ticketId, payload) => {
+    const id = String(ticketId || '').trim();
+    if (!id) return null;
+    const to = payload?.to;
+    const subject = payload?.subject;
+    const body = payload?.body;
+    const html = payload?.html ?? (typeof body === 'string' ? body.replace(/\n/g, '<br/>') : undefined);
+    return requestWithFallback([
+      { method: 'post', url: `/tickets/${encodeURIComponent(id)}/email`, data: { to, subject, body, html } },
+      { method: 'post', url: `/support/tickets/${encodeURIComponent(id)}/email`, data: { to, subject, body, html } },
+      { method: 'post', url: '/email/send', data: { to, subject, html } },
     ]);
   },
 
@@ -73,4 +96,3 @@ export const ticketsService = {
     ]);
   },
 };
-

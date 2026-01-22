@@ -5,6 +5,15 @@ export const activityService = {
     const response = await apiClient.get('/activities', { params });
     return response.data;
   },
+  create: async (data) => {
+    const payload = {
+      type: data?.type,
+      description: data?.description,
+      metadata: data?.metadata,
+    };
+    const response = await apiClient.post('/activities', payload);
+    return response.data;
+  },
   markAsRead: async (id) => {
     const response = await apiClient.patch(`/activities/${id}`, { isRead: true });
     return response.data;

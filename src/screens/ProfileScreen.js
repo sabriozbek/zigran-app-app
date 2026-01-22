@@ -35,6 +35,17 @@ const ProfileScreen = ({ navigation }) => {
   });
   const [saving, setSaving] = useState(false);
 
+  const pushToast = useCallback(
+    (type, message) => {
+      const toast = { type: type || 'success', message: String(message || '') };
+      if (!toast.message) return;
+      const parent = navigation?.getParent?.();
+      if (parent?.setParams) parent.setParams({ toast });
+      else navigation?.setParams?.({ toast });
+    },
+    [navigation],
+  );
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -256,7 +267,7 @@ const ProfileScreen = ({ navigation }) => {
                     position: profile.position,
                     avatarUrl: profile.avatarUrl,
                   });
-                  Alert.alert('Kaydedildi', 'Profil ayarları güncellendi.');
+                  pushToast('success', 'Profil ayarları güncellendi.');
                 } catch {
                   Alert.alert('Hata', 'Profil kaydetme başarısız.');
                 } finally {

@@ -77,6 +77,8 @@ const CustomersScreen = ({ navigation }) => {
         item?.firstName,
         item?.lastName,
         item?.company,
+        item?.account?.name,
+        item?.accountName,
         item?.email,
         item?.phone,
         item?.title,
@@ -102,7 +104,7 @@ const CustomersScreen = ({ navigation }) => {
   const renderItem = ({ item }) => {
     const name = item?.name || [item?.firstName, item?.lastName].filter(Boolean).join(' ') || item?.email || 'İsimsiz Kişi';
     const initials = name.slice(0, 2).toUpperCase();
-    const company = item?.company || item?.companyName;
+    const company = item?.company || item?.companyName || item?.account?.name || item?.accountName;
     const email = item?.email;
     const phone = item?.phone;
     const title = item?.title || item?.jobTitle;

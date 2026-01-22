@@ -11,6 +11,19 @@ export const accountsService = {
     }
   },
 
+  findByName: async (name, opts = {}) => {
+    const needle = String(name ?? '').trim().toLowerCase();
+    if (!needle) return null;
+    const limit = Number.isFinite(Number(opts?.limit)) ? Number(opts.limit) : 200;
+    const page = Number.isFinite(Number(opts?.page)) ? Number(opts.page) : 1;
+    const list = await accountsService.getAll({ limit, page });
+    const items = Array.isArray(list) ? list : Array.isArray(list?.data) ? list.data : [];
+    return (
+      items.find((a) => String(a?.name ?? a?.companyName ?? '').trim().toLowerCase() === needle) ??
+      null
+    );
+  },
+
   get: async (id) => {
     const response = await apiClient.get(`/accounts/${id}`);
     return response.data;

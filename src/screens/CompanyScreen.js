@@ -48,6 +48,17 @@ const CompanyScreen = ({ navigation, route }) => {
   const [cardCvc, setCardCvc] = useState('');
   const [paying, setPaying] = useState(false);
 
+  const pushToast = useCallback(
+    (type, message) => {
+      const toast = { type: type || 'success', message: String(message || '') };
+      if (!toast.message) return;
+      const parent = navigation?.getParent?.();
+      if (parent?.setParams) parent.setParams({ toast });
+      else navigation?.setParams?.({ toast });
+    },
+    [navigation],
+  );
+
   const closeCheckout = useCallback(() => {
     setCheckout({ open: false, plan: null, amount: 0, currency: 'TRY', cycle: 'monthly' });
     setCardName('');
@@ -136,14 +147,14 @@ const CompanyScreen = ({ navigation, route }) => {
       try {
         await apiClient.patch('/settings/company/account', { requestedPlan: cleanId });
         await load({ silent: true });
-        Alert.alert('Başarılı', 'Plan güncellendi.');
+        pushToast('success', 'Plan güncellendi.');
       } catch {
         Alert.alert('Hata', 'Plan seçimi kaydedilemedi.');
       } finally {
         setPaying(false);
       }
     },
-    [load],
+    [load, pushToast],
   );
 
   const openCheckout = useCallback(
@@ -207,13 +218,13 @@ const CompanyScreen = ({ navigation, route }) => {
       closeCheckout();
       await load({ silent: true });
       setActiveTab('billing');
-      Alert.alert('Ödeme Alındı', 'Plan aktif edildi ve fatura oluşturuldu.');
+      pushToast('success', 'Plan aktif edildi ve fatura oluşturuldu.');
     } catch {
       Alert.alert('Hata', 'Ödeme alınamadı.');
     } finally {
       setPaying(false);
     }
-  }, [cardCvc, cardExpiry, cardName, cardNumber, checkout?.amount, checkout?.plan?.id, closeCheckout, load]);
+  }, [cardCvc, cardExpiry, cardName, cardNumber, checkout?.amount, checkout?.plan?.id, closeCheckout, load, pushToast]);
 
   useEffect(() => {
     let cancelled = false;
@@ -372,7 +383,7 @@ const CompanyScreen = ({ navigation, route }) => {
                   const r = await apiClient.get('/settings/company/account');
                   setAccount(r?.data ?? null);
                 } catch {}
-                Alert.alert('Kaydedildi', 'Şirket bilgileri güncellendi.');
+                pushToast('success', 'Şirket bilgileri güncellendi.');
               } catch {
                 Alert.alert('Hata', 'Şirket bilgileri kaydedilemedi.');
               } finally {
@@ -421,6 +432,7 @@ const CompanyScreen = ({ navigation, route }) => {
     styles,
     title,
     users?.length,
+    pushToast,
   ]);
 
   const renderPlans = useCallback(() => {
@@ -566,7 +578,7 @@ const CompanyScreen = ({ navigation, route }) => {
             </View>
             <TouchableOpacity
               style={styles.ghostButton}
-              onPress={() => Alert.alert('Bilgi', 'Kart güncelleme özelliği yakında.')}
+              onPress={() => pushToast('info', 'Kart güncelleme özelliği yakında.')}
               activeOpacity={0.85}
             >
               <Text style={styles.ghostButtonText}>Düzenle</Text>
@@ -620,7 +632,7 @@ const CompanyScreen = ({ navigation, route }) => {
                     </Text>
                     <TouchableOpacity
                       style={styles.ghostButton}
-                      onPress={() => Alert.alert('Bilgi', 'Fatura indirme yakında.')}
+                      onPress={() => pushToast('info', 'Fatura indirme yakında.')}
                       activeOpacity={0.85}
                     >
                       <Text style={styles.ghostButtonText}>İndir</Text>
@@ -633,7 +645,7 @@ const CompanyScreen = ({ navigation, route }) => {
         </View>
       </View>
     );
-  }, [account?.plan, formatDate, formatMoney, invoices, plan, refreshInvoices, styles]);
+  }, [account?.plan, formatDate, formatMoney, invoices, plan, refreshInvoices, styles, pushToast]);
 
   const renderUsers = useCallback(() => {
     const normalized = users.length
@@ -705,7 +717,7 @@ const CompanyScreen = ({ navigation, route }) => {
                   }
                   setInviteEmail('');
                   await refreshUsers();
-                  Alert.alert('Davet gönderildi', inviteEmail.trim());
+                  pushToast('success', `Davet gönderildi: ${inviteEmail.trim()}`);
                 } catch {
                   Alert.alert('Hata', 'Davet gönderilemedi.');
                 } finally {
@@ -768,7 +780,7 @@ const CompanyScreen = ({ navigation, route }) => {
         </View>
       </View>
     );
-  }, [account?.id, colors.textSecondary, inviteEmail, inviteRole, inviting, me, myEmail, myRole, refreshUsers, styles, teams, users]);
+  }, [account?.id, colors.textSecondary, inviteEmail, inviteRole, inviting, me, myEmail, myRole, refreshUsers, styles, teams, users, pushToast]);
 
   const renderTeams = useCallback(() => {
     return (
@@ -935,7 +947,7 @@ const CompanyScreen = ({ navigation, route }) => {
                           setTeamModalOpen(false);
                           await refreshTeams();
                           await refreshUsers();
-                          Alert.alert('Ekip oluşturuldu', 'Yeni ekip kaydedildi.');
+                          pushToast('success', 'Ekip oluşturuldu.');
                         } catch {
                           Alert.alert('Hata', 'Ekip oluşturulamadı.');
                         } finally {
@@ -1015,6 +1027,7 @@ const CompanyScreen = ({ navigation, route }) => {
     teamModalOpen,
     teams,
     users,
+    pushToast,
   ]);
 
   return (

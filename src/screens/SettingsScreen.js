@@ -4,6 +4,7 @@ import {
   Alert,
   Linking,
   NativeModules,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -38,9 +39,159 @@ const DEFAULT_TIMEZONES = [
 ];
 
 const NOTIFICATIONS_PERMISSION_KEY = 'zigran_notifications_permission';
+const PUSH_TOKENS_KEY = 'zigran_push_tokens_cache';
 
 const isExpoGo =
   String(NativeModules?.ExponentConstants?.appOwnership || NativeModules?.ExpoConstants?.appOwnership || '').toLowerCase() === 'expo';
+
+function readExpoManifest() {
+  const constants = NativeModules?.ExponentConstants || NativeModules?.ExpoConstants || {};
+  const manifest = constants?.manifest ?? constants?.manifest2 ?? constants?.expoConfig ?? constants?.appConfig ?? null;
+  if (manifest && typeof manifest === 'object') return manifest;
+  if (typeof manifest === 'string') {
+    try {
+      const parsed = JSON.parse(manifest);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch {}
+  }
+  return null;
+}
+
+function getEasProjectId() {
+  const manifest = readExpoManifest();
+  const id = manifest?.extra?.eas?.projectId ?? manifest?.extra?.easProjectId ?? manifest?.extra?.projectId ?? '';
+  return typeof id === 'string' ? id : '';
+}
+
+async function requestWithFallbackStatuses(steps, extraStatuses) {
+  const extra = Array.isArray(extraStatuses) ? new Set(extraStatuses.map((x) => Number(x))) : new Set();
+  let lastError;
+  for (const step of steps) {
+    try {
+      const response = await apiClient.request(step);
+      return response?.data;
+    } catch (err) {
+      lastError = err;
+      const status = Number(err?.response?.status);
+      const canFallback = status === 404 || status === 405 || status === 501 || extra.has(status);
+      if (!canFallback) throw err;
+    }
+  }
+  throw lastError;
+}
+
+function extractApiErrorMessage(err) {
+  const status = err?.response?.status;
+  const data = err?.response?.data;
+  let msg = '';
+  if (typeof data === 'string') msg = data;
+  else if (data && typeof data === 'object') {
+    if (typeof data.message === 'string') msg = data.message;
+    else if (typeof data.error === 'string') msg = data.error;
+    else if (typeof data.detail === 'string') msg = data.detail;
+    else if (Array.isArray(data.errors) && data.errors.length) msg = String(data.errors[0]?.message || data.errors[0] || '');
+  }
+  if (!msg && typeof err?.message === 'string') msg = err.message;
+  msg = String(msg || '').trim();
+  if (status && msg) return `${status}: ${msg}`;
+  if (status) return String(status);
+  return msg;
+}
+
+function isIgnorablePushRegisterStatus(status) {
+  const s = Number(status);
+  return s === 404 || s === 405 || s === 501;
+}
+
+async function registerPushTokens() {
+  try {
+    const Notifications = await import('expo-notifications');
+    const existing = await Notifications.getPermissionsAsync();
+    if (existing?.status !== 'granted') return { ok: false, reason: 'Bildirim izni yok' };
+
+    if (Platform.OS === 'android') {
+      try {
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'default',
+          importance: Notifications.AndroidImportance?.MAX ?? 4,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#FF231F7C',
+        });
+      } catch {}
+    }
+
+    let devicePushToken = '';
+    try {
+      const token = await Notifications.getDevicePushTokenAsync();
+      if (typeof token?.data === 'string') devicePushToken = token.data;
+    } catch {}
+
+    let expoPushToken = '';
+    try {
+      const projectId = getEasProjectId();
+      const token = projectId
+        ? await Notifications.getExpoPushTokenAsync({ projectId })
+        : await Notifications.getExpoPushTokenAsync();
+      if (typeof token?.data === 'string') expoPushToken = token.data;
+    } catch {}
+
+    const corePayload = {
+      platform: Platform.OS,
+      devicePushToken: devicePushToken || undefined,
+      expoPushToken: expoPushToken || undefined,
+    };
+    const token = expoPushToken || devicePushToken || '';
+    const payload = {
+      ...corePayload,
+      ...(token ? { token, pushToken: token } : {}),
+      ...(expoPushToken ? { expoToken: expoPushToken } : {}),
+      ...(Platform.OS === 'android' && devicePushToken ? { fcmToken: devicePushToken } : {}),
+      ...(Platform.OS === 'ios' && devicePushToken ? { apnsToken: devicePushToken } : {}),
+    };
+    if (!payload.devicePushToken && !payload.expoPushToken && !payload.token) {
+      return { ok: false, reason: 'Push token alınamadı (emülatör olabilir)' };
+    }
+
+    let cached = '';
+    try {
+      cached = (await SecureStore.getItemAsync(PUSH_TOKENS_KEY)) || '';
+    } catch {}
+    const next = JSON.stringify(corePayload);
+    if (cached === next) return { ok: true, payload: corePayload };
+
+    const steps = [
+      { method: 'post', url: '/notifications/push-tokens', data: payload },
+      { method: 'post', url: '/notifications/register', data: payload },
+      { method: 'post', url: '/push/register', data: payload },
+      { method: 'post', url: '/devices/push-token', data: payload },
+      { method: 'post', url: '/devices/push-tokens', data: payload },
+      ...(token
+        ? [
+            { method: 'post', url: '/notifications/register', data: { token, platform: Platform.OS } },
+            { method: 'post', url: '/push/register', data: { token, platform: Platform.OS } },
+            { method: 'post', url: '/devices/push-token', data: { token, platform: Platform.OS } },
+          ]
+        : []),
+    ];
+    try {
+      await requestWithFallbackStatuses(steps, [400, 409, 415, 422]);
+    } catch (err) {
+      const status = err?.response?.status;
+      if (!isIgnorablePushRegisterStatus(status)) {
+        const reason = extractApiErrorMessage(err) || 'Kayıt isteği başarısız';
+        return { ok: false, reason };
+      }
+    }
+
+    try {
+      await SecureStore.setItemAsync(PUSH_TOKENS_KEY, next);
+    } catch {}
+    return { ok: true, payload: corePayload };
+  } catch (err) {
+    const reason = extractApiErrorMessage(err) || 'Kayıt isteği başarısız';
+    return { ok: false, reason };
+  }
+}
 
 const SettingsScreen = ({ navigation, route }) => {
   const { colors, isDark, toggleTheme, paletteId, palettes, setPaletteId } = useTheme();
@@ -48,6 +199,8 @@ const SettingsScreen = ({ navigation, route }) => {
   const [activeTab, setActiveTab] = useState(String(route?.params?.tab || 'profile'));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [pushInfo, setPushInfo] = useState(null);
+  const [pushTesting, setPushTesting] = useState(false);
   const [profile, setProfile] = useState({
     name: '',
     firstName: '',
@@ -83,6 +236,17 @@ const SettingsScreen = ({ navigation, route }) => {
   const [smtpTestTo, setSmtpTestTo] = useState('');
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [passwordSaving, setPasswordSaving] = useState(false);
+
+  const pushToast = useCallback(
+    (type, message) => {
+      const toast = { type: type || 'success', message: String(message || '') };
+      if (!toast.message) return;
+      const parent = navigation?.getParent?.();
+      if (parent?.setParams) parent.setParams({ toast });
+      else navigation?.setParams?.({ toast });
+    },
+    [navigation],
+  );
 
   const tabs = useMemo(() => {
     return [
@@ -184,6 +348,72 @@ const SettingsScreen = ({ navigation, route }) => {
     if (requested) setActiveTab(requested);
   }, [route?.params?.tab]);
 
+  useEffect(() => {
+    if (activeTab !== 'notifications') return;
+    (async () => {
+      try {
+        const raw = await SecureStore.getItemAsync(PUSH_TOKENS_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') setPushInfo(parsed);
+      } catch {}
+    })();
+  }, [activeTab]);
+
+  const sendTestPush = useCallback(async () => {
+    setPushTesting(true);
+    try {
+      let expoToken = String(pushInfo?.expoPushToken || '').trim();
+      if (!expoToken) {
+        const res = await registerPushTokens();
+        if (!res?.ok) {
+          pushToast('warning', res?.reason ? `Push token kaydı başarısız. (${String(res.reason)})` : 'Push token kaydı başarısız.');
+          return;
+        }
+        setPushInfo(res.payload || null);
+        expoToken = String(res?.payload?.expoPushToken || '').trim();
+      }
+
+      if (!expoToken) {
+        pushToast('warning', 'Expo push token bulunamadı.');
+        return;
+      }
+
+      const msg = {
+        to: expoToken,
+        title: 'Zigran',
+        body: 'Test bildirimi',
+        data: { type: 'test', ts: Date.now() },
+      };
+
+      const r = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(msg),
+      });
+      const j = await r.json().catch(() => null);
+
+      const status = j?.data?.status;
+      if (r.ok && status === 'ok') {
+        pushToast('success', 'Test bildirimi gönderildi.');
+        return;
+      }
+
+      const errMsg =
+        j?.data?.message ||
+        j?.data?.details?.error ||
+        (Array.isArray(j?.data?.errors) && j.data.errors.length ? String(j.data.errors[0]) : '') ||
+        (Array.isArray(j?.errors) && j.errors.length ? String(j.errors[0]?.message || j.errors[0]) : '');
+      const details = String(errMsg || '').trim();
+      pushToast('warning', details ? `Test başarısız. (${details})` : `Test başarısız. (${String(r.status)})`);
+    } catch (err) {
+      const details = extractApiErrorMessage(err);
+      pushToast('error', details ? `Test başarısız. (${details})` : 'Test başarısız.');
+    } finally {
+      setPushTesting(false);
+    }
+  }, [pushInfo?.expoPushToken, pushToast]);
+
   const saveProfile = useCallback(async () => {
     setSaving(true);
     try {
@@ -195,13 +425,13 @@ const SettingsScreen = ({ navigation, route }) => {
         position: profile.position,
         avatarUrl: profile.avatarUrl,
       });
-      Alert.alert('Kaydedildi', 'Profil ayarları güncellendi.');
+      pushToast('success', 'Profil ayarları güncellendi.');
     } catch {
       Alert.alert('Hata', 'Profil kaydetme başarısız.');
     } finally {
       setSaving(false);
     }
-  }, [profile]);
+  }, [profile, pushToast]);
 
   const saveAccount = useCallback(async () => {
     setSaving(true);
@@ -211,25 +441,25 @@ const SettingsScreen = ({ navigation, route }) => {
         locale: String(profile.locale || 'tr').trim(),
       });
       await fetchProfile();
-      Alert.alert('Kaydedildi', 'Hesap bilgileri güncellendi.');
+      pushToast('success', 'Hesap bilgileri güncellendi.');
     } catch {
       Alert.alert('Hata', 'Hesap bilgileri kaydedilemedi.');
     } finally {
       setSaving(false);
     }
-  }, [fetchProfile, profile.locale, profile.timezone]);
+  }, [fetchProfile, profile.locale, profile.timezone, pushToast]);
 
   const savePrefs = useCallback(async () => {
     setSaving(true);
     try {
       await apiClient.patch('/settings/profile', { emailPrefs: profile.emailPrefs });
-      Alert.alert('Kaydedildi', 'Tercihler güncellendi.');
+      pushToast('success', 'Tercihler güncellendi.');
     } catch {
       Alert.alert('Hata', 'Tercihler kaydedilemedi.');
     } finally {
       setSaving(false);
     }
-  }, [profile.emailPrefs]);
+  }, [profile.emailPrefs, pushToast]);
 
   const setEmailPref = useCallback((key, value) => {
     setProfile((p) => ({ ...p, emailPrefs: { ...(p.emailPrefs || {}), [key]: !!value } }));
@@ -244,8 +474,7 @@ const SettingsScreen = ({ navigation, route }) => {
     (async () => {
       try {
         if (isExpoGo) {
-          Alert.alert('Bilgi', 'Expo Go üzerinde push bildirimleri desteklenmiyor. Development build kullanın.');
-          return;
+          pushToast('info', 'Expo Go üzerinde yalnızca Expo push token kullanılabilir.');
         }
         const Notifications = await import('expo-notifications');
         const existing = await Notifications.getPermissionsAsync();
@@ -263,29 +492,38 @@ const SettingsScreen = ({ navigation, route }) => {
 
         if (status === 'granted') {
           setEmailPref('notifications', true);
+          const res = await registerPushTokens();
+          if (res?.ok) {
+            setPushInfo(res.payload || null);
+            pushToast('success', 'Bildirimler açıldı.');
+          } else {
+            setPushInfo(null);
+            pushToast('warning', res?.reason ? `Push token kaydı başarısız. (${String(res.reason)})` : 'Push token kaydı başarısız.');
+          }
           return;
         }
       } catch {}
 
       setEmailPref('notifications', false);
+      setPushInfo(null);
       Alert.alert('İzin gerekli', 'Bildirimleri açmak için bildirim izni vermelisiniz.', [
         { text: 'Kapat', style: 'cancel' },
         { text: 'Ayarlar', onPress: () => Linking.openSettings?.() },
       ]);
     })();
-  }, [setEmailPref]);
+  }, [pushToast, setEmailPref]);
 
   const saveCompany = useCallback(async () => {
     setSaving(true);
     try {
       await apiClient.patch('/settings/company', company);
-      Alert.alert('Kaydedildi', 'Şirket ayarları güncellendi.');
+      pushToast('success', 'Şirket ayarları güncellendi.');
     } catch {
       Alert.alert('Hata', 'Şirket ayarlarını kaydetme başarısız.');
     } finally {
       setSaving(false);
     }
-  }, [company]);
+  }, [company, pushToast]);
 
   const changePassword = useCallback(async () => {
     const currentPassword = String(passwordForm.currentPassword || '');
@@ -303,13 +541,13 @@ const SettingsScreen = ({ navigation, route }) => {
     try {
       await apiClient.patch('/settings/profile/password', { currentPassword, newPassword, confirmPassword });
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
-      Alert.alert('Güncellendi', 'Şifreniz değiştirildi.');
+      pushToast('success', 'Şifreniz değiştirildi.');
     } catch {
       Alert.alert('Hata', 'Şifre değiştirilemedi.');
     } finally {
       setPasswordSaving(false);
     }
-  }, [passwordForm]);
+  }, [passwordForm, pushToast]);
 
   const saveSmtp = useCallback(async () => {
     if (!String(smtp.host || '').trim() || !String(smtp.user || '').trim() || !String(smtp.pass || '').trim() || !smtp.port) {
@@ -320,7 +558,7 @@ const SettingsScreen = ({ navigation, route }) => {
     try {
       const r = await apiClient.patch('/email/smtp', smtp);
       if (r?.data?.ok) {
-        Alert.alert('Kaydedildi', 'SMTP ayarları güncellendi.');
+        pushToast('success', 'SMTP ayarları güncellendi.');
       } else {
         Alert.alert('Hata', 'SMTP ayarları kaydedilemedi.');
       }
@@ -329,7 +567,7 @@ const SettingsScreen = ({ navigation, route }) => {
     } finally {
       setSmtpSaving(false);
     }
-  }, [smtp]);
+  }, [pushToast, smtp]);
 
   const sendSmtpTest = useCallback(async () => {
     setSmtpSendingTest(true);
@@ -342,7 +580,7 @@ const SettingsScreen = ({ navigation, route }) => {
       const html = `<div style="font-family:sans-serif">SMTP testi başarılıysa bu e‑posta size ulaştı.<br/>Gönderen: ${String(smtp.fromName || '')} &lt;${String(smtp.fromEmail || '')}&gt;</div>`;
       const r = await apiClient.post('/email/send', { to, subject: 'SMTP Test', html });
       if (r?.data?.ok) {
-        Alert.alert('Gönderildi', 'Test e‑posta gönderildi.');
+        pushToast('success', 'Test e‑posta gönderildi.');
         fetchLogs();
       } else {
         Alert.alert('Hata', 'Test e‑posta gönderme başarısız.');
@@ -352,7 +590,7 @@ const SettingsScreen = ({ navigation, route }) => {
     } finally {
       setSmtpSendingTest(false);
     }
-  }, [fetchLogs, smtp.fromEmail, smtp.fromName, smtpTestTo]);
+  }, [fetchLogs, pushToast, smtp.fromEmail, smtp.fromName, smtpTestTo]);
 
   const verifySmtp = useCallback(async () => {
     setSmtpVerifyMsg('');
@@ -531,6 +769,33 @@ const SettingsScreen = ({ navigation, route }) => {
                 onPress={savePrefs}
               >
                 <Text style={styles.primaryButtonText}>{saving ? 'Kaydediliyor...' : 'Kaydet'}</Text>
+              </TouchableOpacity>
+
+              {pushInfo?.expoPushToken ? (
+                <View style={styles.kvRow}>
+                  <Text style={styles.kvLabel}>Expo Token</Text>
+                  <Text style={styles.kvValue} numberOfLines={1}>
+                    {String(pushInfo.expoPushToken)}
+                  </Text>
+                </View>
+              ) : null}
+
+              {pushInfo?.devicePushToken ? (
+                <View style={styles.kvRow}>
+                  <Text style={styles.kvLabel}>{Platform.OS === 'android' ? 'FCM Token' : 'APNS Token'}</Text>
+                  <Text style={styles.kvValue} numberOfLines={1}>
+                    {String(pushInfo.devicePushToken)}
+                  </Text>
+                </View>
+              ) : null}
+
+              <TouchableOpacity
+                style={[styles.secondaryButton, pushTesting ? styles.buttonDisabled : null]}
+                activeOpacity={0.85}
+                disabled={pushTesting}
+                onPress={sendTestPush}
+              >
+                <Text style={styles.secondaryButtonText}>{pushTesting ? 'Gönderiliyor...' : 'Test bildirimi gönder'}</Text>
               </TouchableOpacity>
             </View>
           ) : null}

@@ -23,6 +23,55 @@ function normalizeList(payload) {
   return [];
 }
 
+function pickString(...values) {
+  for (const v of values) {
+    if (typeof v === 'string' && v.trim()) return v.trim();
+    if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  }
+  return '';
+}
+
+function formatCallStatus(raw) {
+  const s = String(raw ?? '').trim().toLowerCase();
+  if (!s) return { key: 'planned', label: 'Planlı' };
+  if (['completed', 'done', 'success'].includes(s)) return { key: 'completed', label: 'Tamamlandı' };
+  if (['missed', 'no_answer', 'noanswer', 'unanswered', 'failed'].includes(s)) return { key: 'missed', label: 'Cevapsız' };
+  if (['cancelled', 'canceled'].includes(s)) return { key: 'cancelled', label: 'İptal' };
+  if (['in_progress', 'inprogress', 'ongoing', 'active'].includes(s)) return { key: 'in_progress', label: 'Devam Ediyor' };
+  if (['planned', 'scheduled', 'open', 'new'].includes(s)) return { key: 'planned', label: 'Planlı' };
+  return { key: s, label: s };
+}
+
+function getCallContactLabel(item) {
+  const first = pickString(item?.contact?.firstName, item?.contact?.first_name, item?.firstName, item?.first_name);
+  const last = pickString(item?.contact?.lastName, item?.contact?.last_name, item?.lastName, item?.last_name);
+  const fullFromParts = pickString([first, last].filter(Boolean).join(' '));
+  const name =
+    pickString(
+      item?.contactName,
+      item?.contact_name,
+      item?.contact?.name,
+      item?.contact?.fullName,
+      item?.contact?.full_name,
+      fullFromParts,
+      item?.leadName,
+      item?.lead_name,
+      item?.lead?.name,
+      item?.customerName,
+      item?.customer_name,
+      item?.customer?.name,
+      item?.personName,
+      item?.person_name,
+      item?.name,
+    ) || '';
+  if (name) return name;
+  const phone = pickString(item?.phone, item?.to, item?.from);
+  if (phone) return phone;
+  const company = pickString(item?.companyName, item?.company_name, item?.company?.name);
+  if (company) return company;
+  return 'Bilinmeyen Kişi';
+}
+
 const CallsScreen = ({ navigation }) => {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -72,12 +121,17 @@ const CallsScreen = ({ navigation }) => {
     const q = query.trim().toLowerCase();
     if (!q) return data;
     return data.filter((item) => {
+      const contactLabel = getCallContactLabel(item);
       const haystack = [
         item?.subject,
         item?.description,
-        item?.contactName,
+        contactLabel,
         item?.companyName,
+        item?.company_name,
+        item?.company?.name,
         item?.phone,
+        item?.from,
+        item?.to,
       ]
         .filter(Boolean)
         .join(' ')
@@ -88,9 +142,10 @@ const CallsScreen = ({ navigation }) => {
 
   const renderItem = ({ item }) => {
     const subject = item?.subject || 'Arama';
-    const contact = item?.contactName || item?.contact_name || 'Bilinmeyen Kişi';
+    const contact = getCallContactLabel(item);
     const duration = item?.duration ? `${item.duration} sn` : null;
-    const status = item?.status || item?.state || 'planned';
+    const statusRaw = item?.status || item?.state || 'planned';
+    const status = formatCallStatus(statusRaw);
     const date = item?.createdAt || item?.created_at || item?.date;
     
     // Simple formatting for date
@@ -99,10 +154,10 @@ const CallsScreen = ({ navigation }) => {
     let iconName = 'call-outline';
     let iconColor = colors.textPrimary;
     
-    if (status === 'missed') {
+    if (status.key === 'missed') {
       iconName = 'call';
       iconColor = colors.danger || '#ef4444';
-    } else if (status === 'completed') {
+    } else if (status.key === 'completed') {
       iconName = 'call';
       iconColor = colors.primary; // '#22c55e'
     }
@@ -121,7 +176,7 @@ const CallsScreen = ({ navigation }) => {
             
             <View style={styles.metaRow}>
               <View style={[styles.badge, styles.badgeOutline]}>
-                <Text style={[styles.badgeText, styles.badgeOutlineText]}>{status}</Text>
+                <Text style={[styles.badgeText, styles.badgeOutlineText]}>{status.label}</Text>
               </View>
               {duration ? (
                 <View style={styles.metaItem}>

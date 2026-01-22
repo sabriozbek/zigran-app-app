@@ -21,6 +21,55 @@ function normalizeList(payload) {
   if (Array.isArray(payload?.items)) return payload.items;
   if (Array.isArray(payload?.data)) return payload.data;
   if (Array.isArray(payload?.results)) return payload.results;
+  if (Array.isArray(payload?.providers)) return payload.providers;
+  if (Array.isArray(payload?.integrations)) return payload.integrations;
+  if (Array.isArray(payload?.list)) return payload.list;
+  if (Array.isArray(payload?.data?.items)) return payload.data.items;
+  if (Array.isArray(payload?.data?.data)) return payload.data.data;
+  if (Array.isArray(payload?.data?.results)) return payload.data.results;
+  if (Array.isArray(payload?.data?.providers)) return payload.data.providers;
+  if (Array.isArray(payload?.data?.integrations)) return payload.data.integrations;
+  if (Array.isArray(payload?.data?.list)) return payload.data.list;
+
+  if (payload && typeof payload === 'object') {
+    const inner = payload?.data ?? payload?.result ?? payload?.payload;
+    if (inner && inner !== payload) {
+      const nested = normalizeList(inner);
+      if (nested.length) return nested;
+    }
+
+    const metaKeys = new Set([
+      'success',
+      'message',
+      'error',
+      'errors',
+      'status',
+      'code',
+      'meta',
+      'pagination',
+      'page',
+      'limit',
+      'total',
+      'items',
+      'data',
+      'results',
+      'providers',
+      'integrations',
+      'list',
+    ]);
+    const keys = Object.keys(payload).filter((k) => !metaKeys.has(k));
+    if (keys.length) {
+      const values = keys
+        .map((k) => {
+          const v = payload[k];
+          if (v && typeof v === 'object' && !Array.isArray(v)) return { key: k, ...v };
+          if (v != null) return { key: k, value: v };
+          return null;
+        })
+        .filter(Boolean);
+      if (values.length) return values;
+    }
+  }
   return [];
 }
 
@@ -75,4 +124,3 @@ export const integrationsService = {
     ]);
   },
 };
-

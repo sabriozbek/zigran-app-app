@@ -68,7 +68,7 @@ export default function CustomerDetailScreen({ navigation, route }) {
     navigation.setOptions({ title: displayName || 'Kişi' });
   }, [displayName, navigation]);
 
-  const company = safeString(customer?.company ?? customer?.companyName);
+  const company = safeString(customer?.company ?? customer?.companyName ?? customer?.account?.name ?? customer?.accountName);
   const title = safeString(customer?.title ?? customer?.jobTitle);
   const email = safeString(customer?.email);
   const phone = safeString(customer?.phone);
@@ -314,4 +314,3 @@ function createStyles(colors) {
     emptyTitle: { color: colors.textSecondary, fontWeight: '800' },
   });
 }
-

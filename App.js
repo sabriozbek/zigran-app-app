@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -41,6 +41,37 @@ function Root() {
       },
     };
   }, [colors, isDark]);
+
+  useEffect(() => {
+    let mounted = true;
+    let subs = [];
+    (async () => {
+      try {
+        const Notifications = await import('expo-notifications');
+        if (!mounted) return;
+        Notifications.setNotificationHandler({
+          handleNotification: async () => ({
+            shouldShowAlert: true,
+            shouldPlaySound: true,
+            shouldSetBadge: true,
+          }),
+        });
+        const s1 = Notifications.addNotificationReceivedListener(() => {});
+        const s2 = Notifications.addNotificationResponseReceivedListener(() => {});
+        subs = [s1, s2].filter(Boolean);
+      } catch {}
+    })();
+    return () => {
+      mounted = false;
+      for (const s of subs) {
+        try {
+          s?.remove?.();
+        } catch {}
+      }
+      subs = [];
+    };
+  }, []);
+
   return (
     <>
       <AppErrorBoundary>

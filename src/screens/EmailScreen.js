@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   FlatList,
   Modal,
   Pressable,
@@ -52,16 +53,83 @@ function formatDate(value) {
   return dt.toLocaleString('tr-TR', { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+function stripHtmlToText(html) {
+  const raw = String(html || '');
+  if (!raw) return '';
+  const withoutScripts = raw.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ');
+  const withoutTags = withoutScripts.replace(/<[^>]+>/g, ' ');
+  return withoutTags
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractPreviewBlocks(html) {
+  const raw = String(html || '');
+  const blocks = [];
+  if (!raw) return blocks;
+
+  const imgMatches = raw.matchAll(/<img[^>]*>/gi);
+  for (let i = 0; i < 2; i += 1) {
+    const next = imgMatches.next();
+    if (next.done) break;
+    blocks.push({ type: 'image' });
+  }
+
+  const headingMatches = raw.matchAll(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi);
+  for (const m of headingMatches) {
+    const txt = stripHtmlToText(m?.[1] || '').slice(0, 60);
+    if (txt) blocks.push({ type: 'heading', text: txt });
+    if (blocks.length >= 4) break;
+  }
+
+  const linkMatches = raw.matchAll(/<a[^>]*>([\s\S]*?)<\/a>/gi);
+  for (const m of linkMatches) {
+    const txt = stripHtmlToText(m?.[1] || '').slice(0, 32);
+    if (txt) blocks.push({ type: 'button', text: txt });
+    if (blocks.length >= 5) break;
+  }
+
+  const text = stripHtmlToText(raw);
+  if (text) {
+    const chunks = text.split('. ').filter(Boolean);
+    for (let i = 0; i < chunks.length && blocks.length < 8; i += 1) {
+      const t = String(chunks[i]).trim().slice(0, 70);
+      if (t) blocks.push({ type: 'text', text: t });
+    }
+  }
+
+  if (blocks.length === 0) return [{ type: 'text', text: 'İçerik bulunamadı' }];
+  return blocks.slice(0, 8);
+}
+
 const TAB_ITEMS = [
   { key: 'templates', label: 'Şablonlar', icon: 'copy-outline' },
   { key: 'send', label: 'Gönder', icon: 'send-outline' },
   { key: 'logs', label: 'Raporlar', icon: 'stats-chart-outline' },
 ];
 
-export default function EmailScreen() {
+export default function EmailScreen({ navigation }) {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+  const screenWidth = useMemo(() => Dimensions.get('window').width, []);
   const [activeTab, setActiveTab] = useState('templates');
+
+  const pushToast = useCallback(
+    (type, message) => {
+      const toast = { type: type || 'success', message: String(message || '') };
+      if (!toast.message) return;
+      const parent = navigation?.getParent?.();
+      if (parent?.setParams) parent.setParams({ toast });
+      else navigation?.setParams?.({ toast });
+    },
+    [navigation],
+  );
 
   const [templates, setTemplates] = useState([]);
   const [logs, setLogs] = useState([]);
@@ -73,6 +141,9 @@ export default function EmailScreen() {
 
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
+  const [templatesView, setTemplatesView] = useState('gallery');
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewTpl, setPreviewTpl] = useState(null);
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorSaving, setEditorSaving] = useState(false);
@@ -180,6 +251,16 @@ export default function EmailScreen() {
     setEditorOpen(true);
   }, []);
 
+  const openPreview = useCallback((tpl) => {
+    setPreviewTpl(tpl || null);
+    setPreviewOpen(true);
+  }, []);
+
+  const closePreview = useCallback(() => {
+    setPreviewOpen(false);
+    setPreviewTpl(null);
+  }, []);
+
   const saveTemplate = useCallback(async () => {
     const name = String(draft?.name || '').trim();
     const subject = String(draft?.subject || '').trim();
@@ -282,7 +363,7 @@ export default function EmailScreen() {
           Alert.alert('Hata', 'Gönderim başarısız.');
           return;
         }
-        Alert.alert('Başarılı', `Gönderim tetiklendi. (${String(res?.sent ?? '')})`);
+        pushToast('success', `Gönderim tetiklendi. (${String(res?.sent ?? '')})`);
       } else {
         const to = String(sendTo || '').trim();
         if (!to) {
@@ -294,7 +375,7 @@ export default function EmailScreen() {
           Alert.alert('Hata', 'Gönderim başarısız.');
           return;
         }
-        Alert.alert('Başarılı', 'E-posta gönderildi.');
+        pushToast('success', 'E-posta gönderildi.');
       }
       setSendTo('');
       await loadAll();
@@ -303,7 +384,7 @@ export default function EmailScreen() {
     } finally {
       setSending(false);
     }
-  }, [loadAll, sendMode, sendSegmentId, sendTemplateId, sendTo, sendVariables]);
+  }, [loadAll, pushToast, sendMode, sendSegmentId, sendTemplateId, sendTo, sendVariables]);
 
   const TemplateCard = useCallback(
     ({ item }) => {
@@ -311,8 +392,48 @@ export default function EmailScreen() {
       const name = String(tpl?.name || 'Şablon');
       const subject = String(tpl?.subject || '—');
       const cat = String(tpl?.category || '').trim();
+      const blocks = extractPreviewBlocks(tpl?.html);
       return (
-        <AppCard style={styles.tplCard} onPress={() => openEditTemplate(tpl)} accessibilityLabel={`${name} şablonunu düzenle`}>
+        <AppCard style={styles.tplCard} onPress={() => openPreview(tpl)} accessibilityLabel={`${name} şablonunu önizle`}>
+          <View style={styles.tplPreviewFrame}>
+            <View style={styles.tplPreviewTopBar}>
+              <View style={styles.tplPreviewDot} />
+              <View style={styles.tplPreviewDot} />
+              <View style={styles.tplPreviewDot} />
+              <View style={{ flex: 1 }} />
+              <View style={styles.tplPreviewPill}>
+                <Text style={styles.tplPreviewPillText} numberOfLines={1}>
+                  {String(tpl?.previewText || '').trim() ? String(tpl.previewText).trim() : 'Önizleme'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.tplPreviewBody}>
+              {blocks.map((b, idx) => {
+                if (b.type === 'image') return <View key={String(idx)} style={styles.tplPreviewImage} />;
+                if (b.type === 'heading')
+                  return (
+                    <View key={String(idx)} style={styles.tplPreviewLineWrap}>
+                      <View style={[styles.tplPreviewLine, styles.tplPreviewLineStrong]} />
+                      <View style={[styles.tplPreviewLine, styles.tplPreviewLineStrong]} />
+                    </View>
+                  );
+                if (b.type === 'button')
+                  return (
+                    <View key={String(idx)} style={styles.tplPreviewButton}>
+                      <View style={styles.tplPreviewButtonInner} />
+                    </View>
+                  );
+                return (
+                  <View key={String(idx)} style={styles.tplPreviewLineWrap}>
+                    <View style={styles.tplPreviewLine} />
+                    <View style={styles.tplPreviewLine} />
+                    <View style={[styles.tplPreviewLine, styles.tplPreviewLineShort]} />
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+
           <View style={styles.tplTop}>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.tplName} numberOfLines={1}>
@@ -336,16 +457,41 @@ export default function EmailScreen() {
               Güncellendi: {formatDate(tpl?.updatedAt ?? tpl?.updated_at ?? tpl?.createdAt)}
             </Text>
             <View style={styles.tplActions}>
-              <TouchableOpacity style={styles.iconBtn} activeOpacity={0.8} onPress={() => openEditTemplate(tpl)}>
+              <TouchableOpacity
+                style={styles.iconBtn}
+                activeOpacity={0.8}
+                onPress={(e) => {
+                  e?.stopPropagation?.();
+                  openEditTemplate(tpl);
+                }}
+              >
                 <Ionicons name={safeIoniconName('create-outline', 'create-outline')} size={16} color={colors.textPrimary} />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.iconBtn} activeOpacity={0.8} onPress={() => confirmDeleteTemplate(tpl)}>
+              <TouchableOpacity
+                style={styles.iconBtn}
+                activeOpacity={0.8}
+                onPress={(e) => {
+                  e?.stopPropagation?.();
+                  openPreview(tpl);
+                }}
+              >
+                <Ionicons name={safeIoniconName('eye-outline', 'eye-outline')} size={16} color={colors.textPrimary} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.iconBtn}
+                activeOpacity={0.8}
+                onPress={(e) => {
+                  e?.stopPropagation?.();
+                  confirmDeleteTemplate(tpl);
+                }}
+              >
                 <Ionicons name={safeIoniconName('trash-outline', 'trash-outline')} size={16} color={colors.danger} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.iconBtn, styles.iconBtnPrimary]}
                 activeOpacity={0.85}
-                onPress={() => {
+                onPress={(e) => {
+                  e?.stopPropagation?.();
                   setActiveTab('send');
                   setSendTemplateId(String(tpl?.id || ''));
                 }}
@@ -362,6 +508,7 @@ export default function EmailScreen() {
       colors.textPrimary,
       confirmDeleteTemplate,
       openEditTemplate,
+      openPreview,
       styles.iconBtn,
       styles.iconBtnPrimary,
       styles.pill,
@@ -372,6 +519,19 @@ export default function EmailScreen() {
       styles.tplCard,
       styles.tplMeta,
       styles.tplName,
+      styles.tplPreviewBody,
+      styles.tplPreviewButton,
+      styles.tplPreviewButtonInner,
+      styles.tplPreviewDot,
+      styles.tplPreviewFrame,
+      styles.tplPreviewImage,
+      styles.tplPreviewLine,
+      styles.tplPreviewLineShort,
+      styles.tplPreviewLineStrong,
+      styles.tplPreviewLineWrap,
+      styles.tplPreviewPill,
+      styles.tplPreviewPillText,
+      styles.tplPreviewTopBar,
       styles.tplTop,
     ],
   );
@@ -482,16 +642,39 @@ export default function EmailScreen() {
 
   const content = useMemo(() => {
     if (activeTab === 'templates') {
+      const isGrid = templatesView === 'gallery';
+      const columns = screenWidth >= 820 ? 3 : screenWidth >= 520 ? 2 : 1;
       return (
         <View style={{ gap: 10 }}>
           <AppCard style={styles.filterCard}>
-            <TextInput
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Şablon ara (ad, konu, açıklama)"
-              placeholderTextColor={colors.textSecondary}
-              style={styles.searchInput}
-            />
+            <View style={styles.searchRow}>
+              <View style={styles.searchWrap}>
+                <Ionicons name={safeIoniconName('search', 'search')} size={16} color={colors.textSecondary} />
+                <TextInput
+                  value={search}
+                  onChangeText={setSearch}
+                  placeholder="Şablon ara (ad, konu, açıklama)"
+                  placeholderTextColor={colors.textSecondary}
+                  style={styles.searchInput}
+                />
+              </View>
+              <View style={styles.viewToggleRow}>
+                <TouchableOpacity
+                  style={[styles.viewToggleBtn, templatesView === 'gallery' ? styles.viewToggleBtnActive : null]}
+                  onPress={() => setTemplatesView('gallery')}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name={safeIoniconName('grid-outline', 'grid-outline')} size={16} color={templatesView === 'gallery' ? '#fff' : colors.textSecondary} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.viewToggleBtn, templatesView === 'list' ? styles.viewToggleBtnActive : null]}
+                  onPress={() => setTemplatesView('list')}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name={safeIoniconName('list-outline', 'list-outline')} size={16} color={templatesView === 'list' ? '#fff' : colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            </View>
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
               {categories.map((c) => {
@@ -521,6 +704,9 @@ export default function EmailScreen() {
             data={visibleTemplates}
             keyExtractor={(item, idx) => String(item?.id ?? idx)}
             renderItem={TemplateCard}
+            key={isGrid ? `grid-${columns}` : 'list'}
+            numColumns={isGrid ? columns : 1}
+            columnWrapperStyle={isGrid && columns > 1 ? styles.tplColumn : null}
             scrollEnabled={false}
             ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
           />
@@ -726,6 +912,7 @@ export default function EmailScreen() {
     logs,
     search,
     segments,
+    screenWidth,
     sendMode,
     sendNow,
     sendSegmentId,
@@ -777,7 +964,14 @@ export default function EmailScreen() {
     styles.templatePickRow,
     styles.templatePickText,
     styles.templatePickTextActive,
+    styles.tplColumn,
+    styles.searchRow,
+    styles.searchWrap,
+    styles.viewToggleBtn,
+    styles.viewToggleBtnActive,
+    styles.viewToggleRow,
     templates,
+    templatesView,
   ]);
 
   if (loading) {
@@ -799,6 +993,103 @@ export default function EmailScreen() {
         {renderHeader}
         {content}
       </ScrollView>
+
+      <Modal visible={previewOpen} animationType="slide" transparent onRequestClose={closePreview}>
+        <Pressable style={styles.modalOverlay} onPress={closePreview} />
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHeader}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.modalTitle} numberOfLines={1}>
+                {String(previewTpl?.name || 'Şablon Önizleme')}
+              </Text>
+              <Text style={styles.modalSubtitle} numberOfLines={1}>
+                {String(previewTpl?.subject || '—')}
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.iconBtn} activeOpacity={0.8} onPress={closePreview}>
+              <Ionicons name={safeIoniconName('close', 'close')} size={20} color={colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.previewBody} keyboardShouldPersistTaps="handled">
+            <View style={styles.previewEmailFrame}>
+              <View style={styles.previewEmailHeader}>
+                <View style={styles.previewAvatar} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.previewFrom} numberOfLines={1}>
+                    {String(previewTpl?.fromName || 'Zigran')}
+                  </Text>
+                  <Text style={styles.previewSub} numberOfLines={1}>
+                    {String(previewTpl?.previewText || 'Gelen kutusu önizlemesi')}
+                  </Text>
+                </View>
+                <View style={styles.previewTimePill}>
+                  <Text style={styles.previewTimeText}>Şimdi</Text>
+                </View>
+              </View>
+              <View style={styles.previewEmailBody}>
+                {extractPreviewBlocks(previewTpl?.html).map((b, idx) => {
+                  if (b.type === 'image') return <View key={String(idx)} style={styles.previewBlockImage} />;
+                  if (b.type === 'button')
+                    return (
+                      <View key={String(idx)} style={styles.previewBlockButton}>
+                        <Text style={styles.previewBlockButtonText} numberOfLines={1}>
+                          {String(b.text || 'Buton')}
+                        </Text>
+                      </View>
+                    );
+                  if (b.type === 'heading')
+                    return (
+                      <Text key={String(idx)} style={styles.previewHeading} numberOfLines={2}>
+                        {String(b.text || '')}
+                      </Text>
+                    );
+                  return (
+                    <Text key={String(idx)} style={styles.previewParagraph} numberOfLines={3}>
+                      {String(b.text || '')}
+                    </Text>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.previewActions}>
+              <TouchableOpacity
+                style={styles.secondaryButtonSmall}
+                activeOpacity={0.85}
+                onPress={() => {
+                  if (!previewTpl) return;
+                  closePreview();
+                  setTimeout(() => openEditTemplate(previewTpl), 0);
+                }}
+              >
+                <Text style={styles.secondaryButtonSmallText}>Düzenle</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.primaryButtonSmall, !previewTpl?.id ? styles.disabled : null]}
+                activeOpacity={0.85}
+                disabled={!previewTpl?.id}
+                onPress={() => {
+                  if (!previewTpl?.id) return;
+                  setActiveTab('send');
+                  setSendTemplateId(String(previewTpl.id));
+                  closePreview();
+                }}
+              >
+                <Ionicons name={safeIoniconName('send-outline', 'send-outline')} size={16} color="#fff" />
+                <Text style={styles.primaryButtonSmallText}>Kullan</Text>
+              </TouchableOpacity>
+            </View>
+
+            <AppCard style={styles.previewMetaCard}>
+              <Text style={styles.sectionTitle}>İçerik Özeti</Text>
+              <Text style={styles.meta} numberOfLines={6}>
+                {stripHtmlToText(previewTpl?.html) || '—'}
+              </Text>
+            </AppCard>
+          </ScrollView>
+        </View>
+      </Modal>
 
       <Modal visible={editorOpen} animationType="slide" transparent onRequestClose={() => setEditorOpen(false)}>
         <Pressable style={styles.modalOverlay} onPress={() => setEditorOpen(false)} />
@@ -910,17 +1201,38 @@ function createStyles(colors, isDark) {
     },
     secondaryButtonSmallText: { color: colors.primary, fontWeight: '900', fontSize: 12 },
 
-    filterCard: { padding: 12 },
-    searchInput: {
+    filterCard: { padding: 14, gap: 10 },
+    searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    searchWrap: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
       backgroundColor: colors.background,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: 12,
       paddingHorizontal: 12,
       paddingVertical: 10,
+    },
+    searchInput: {
+      flex: 1,
+      padding: 0,
       color: colors.textPrimary,
       fontWeight: '800',
     },
+    viewToggleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    viewToggleBtn: {
+      width: 42,
+      height: 42,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    viewToggleBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
     categoryRow: { gap: 8, paddingTop: 10, paddingBottom: 2 },
     categoryPill: {
       paddingHorizontal: 12,
@@ -935,6 +1247,27 @@ function createStyles(colors, isDark) {
     categoryTextActive: { color: '#fff' },
 
     tplCard: { padding: 12 },
+    tplColumn: { gap: 10, justifyContent: 'space-between' },
+    tplPreviewFrame: {
+      height: 108,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+      overflow: 'hidden',
+    },
+    tplPreviewTopBar: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
+    tplPreviewDot: { width: 8, height: 8, borderRadius: 99, backgroundColor: colors.textSecondary + '55' },
+    tplPreviewPill: { maxWidth: 130, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.background, paddingHorizontal: 8, paddingVertical: 5 },
+    tplPreviewPillText: { color: colors.textSecondary, fontWeight: '900', fontSize: 10 },
+    tplPreviewBody: { flex: 1, padding: 10, gap: 8 },
+    tplPreviewImage: { height: 22, borderRadius: 10, backgroundColor: colors.primary + '1A', borderWidth: 1, borderColor: colors.primary + '33' },
+    tplPreviewLineWrap: { gap: 5 },
+    tplPreviewLine: { height: 7, borderRadius: 99, backgroundColor: colors.textSecondary + '2A' },
+    tplPreviewLineStrong: { backgroundColor: colors.textSecondary + '45', height: 8 },
+    tplPreviewLineShort: { width: '70%' },
+    tplPreviewButton: { height: 18, borderRadius: 999, backgroundColor: colors.primary + '14', borderWidth: 1, borderColor: colors.primary + '2A', alignSelf: 'flex-start', paddingHorizontal: 14, justifyContent: 'center' },
+    tplPreviewButtonInner: { height: 6, borderRadius: 99, backgroundColor: colors.primary + '66', width: 44 },
     tplTop: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', justifyContent: 'space-between' },
     tplName: { color: colors.textPrimary, fontWeight: '900', fontSize: 14 },
     tplMeta: { marginTop: 4, color: colors.textSecondary, fontWeight: '700', lineHeight: 18 },
@@ -1034,6 +1367,23 @@ function createStyles(colors, isDark) {
     modalSheet: { position: 'absolute', left: 0, right: 0, bottom: 0, top: '10%', backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
     modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
     modalTitle: { color: colors.textPrimary, fontWeight: '900', fontSize: 16 },
+    modalSubtitle: { marginTop: 3, color: colors.textSecondary, fontWeight: '800', fontSize: 12 },
     modalBody: { padding: 16, paddingBottom: 28 },
+    previewBody: { padding: 16, paddingBottom: 28, gap: 12 },
+    previewEmailFrame: { borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, overflow: 'hidden' },
+    previewEmailHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.background },
+    previewAvatar: { width: 34, height: 34, borderRadius: 12, backgroundColor: colors.primary + '22', borderWidth: 1, borderColor: colors.primary + '33' },
+    previewFrom: { color: colors.textPrimary, fontWeight: '900' },
+    previewSub: { marginTop: 2, color: colors.textSecondary, fontWeight: '700', fontSize: 12 },
+    previewTimePill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+    previewTimeText: { color: colors.textSecondary, fontWeight: '900', fontSize: 11 },
+    previewEmailBody: { padding: 14, gap: 10, backgroundColor: colors.surface },
+    previewBlockImage: { height: 120, borderRadius: 16, backgroundColor: colors.primary + '14', borderWidth: 1, borderColor: colors.primary + '2A' },
+    previewHeading: { color: colors.textPrimary, fontWeight: '900', fontSize: 18, lineHeight: 24 },
+    previewParagraph: { color: colors.textSecondary, fontWeight: '700', lineHeight: 20 },
+    previewBlockButton: { alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, backgroundColor: colors.primary, borderWidth: 1, borderColor: colors.primary },
+    previewBlockButtonText: { color: '#fff', fontWeight: '900' },
+    previewActions: { flexDirection: 'row', gap: 10, alignItems: 'center', justifyContent: 'space-between' },
+    previewMetaCard: { padding: 14 },
   });
 }

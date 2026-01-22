@@ -37,7 +37,7 @@ function isFolderItem(item) {
   return false;
 }
 
-export default function DocumentsScreen() {
+export default function DocumentsScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
@@ -53,6 +53,17 @@ export default function DocumentsScreen() {
   const currentFolder = folderStack.length > 0 ? folderStack[folderStack.length - 1] : null;
   const currentParentId = currentFolder?.id ? String(currentFolder.id) : undefined;
   const pathLabel = folderStack.length === 0 ? '/' : `/${folderStack.map((f) => safeString(f?.name) || 'Klasör').join('/')}`;
+
+  const pushToast = useCallback(
+    (type, message) => {
+      const toast = { type: type || 'success', message: String(message || '') };
+      if (!toast.message) return;
+      const parent = navigation?.getParent?.();
+      if (parent?.setParams) parent.setParams({ toast });
+      else navigation?.setParams?.({ toast });
+    },
+    [navigation],
+  );
 
   const fetchData = useCallback(async () => {
     try {
@@ -117,19 +128,19 @@ export default function DocumentsScreen() {
         });
 
       if (!file) {
-        Alert.alert('Hata', 'Dosya seçilemedi.');
+        pushToast('error', 'Dosya seçilemedi.');
         return;
       }
 
       await documentsService.upload({ name: fileName, file, parentId: currentParentId });
       await fetchData();
-      Alert.alert('Yüklendi', 'Belge başarıyla yüklendi.');
+      pushToast('success', 'Belge başarıyla yüklendi.');
     } catch {
-      Alert.alert('Hata', 'Belge yüklenemedi.');
+      pushToast('error', 'Belge yüklenemedi.');
     } finally {
       setUploading(false);
     }
-  }, [currentParentId, fetchData]);
+  }, [currentParentId, fetchData, pushToast]);
 
   const handleOpenCreateFolder = useCallback(() => {
     setFolderName('');
@@ -139,7 +150,7 @@ export default function DocumentsScreen() {
   const handleCreateFolder = useCallback(async () => {
     const name = safeString(folderName);
     if (!name) {
-      Alert.alert('Hata', 'Klasör adı gerekli.');
+      pushToast('warning', 'Klasör adı gerekli.');
       return;
     }
     setCreatingFolder(true);
@@ -148,13 +159,13 @@ export default function DocumentsScreen() {
       setFolderModalOpen(false);
       setFolderName('');
       await fetchData();
-      Alert.alert('Oluşturuldu', 'Klasör başarıyla oluşturuldu.');
+      pushToast('success', 'Klasör başarıyla oluşturuldu.');
     } catch {
-      Alert.alert('Hata', 'Klasör oluşturulamadı.');
+      pushToast('error', 'Klasör oluşturulamadı.');
     } finally {
       setCreatingFolder(false);
     }
-  }, [currentParentId, fetchData, folderName]);
+  }, [currentParentId, fetchData, folderName, pushToast]);
 
   const handleEnterFolder = useCallback((item, index) => {
     const id = item?.id ?? item?._id ?? item?.documentId ?? item?.document_id ?? getDocId(item, index);
@@ -181,13 +192,13 @@ export default function DocumentsScreen() {
               await documentsService.delete(id);
               setData((prev) => prev.filter((d, idx) => getDocId(d, idx) !== String(id)));
             } catch {
-              Alert.alert('Hata', 'Belge silinemedi.');
+              pushToast('error', 'Belge silinemedi.');
             }
           },
         },
       ]);
     },
-    [],
+    [pushToast],
   );
 
   const renderItem = useCallback(

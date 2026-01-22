@@ -52,7 +52,10 @@ const AddAccountScreen = ({ navigation }) => {
     setSaving(true);
     try {
       await accountsService.create(payload);
-      Alert.alert('Başarılı', 'Firma oluşturuldu.', [{ text: 'Tamam', onPress: () => navigation.goBack() }]);
+      navigation.navigate('Main', {
+        screen: 'Accounts',
+        toast: { type: 'success', message: 'Firma oluşturuldu.' },
+      });
     } catch {
       Alert.alert('Hata', 'Firma oluşturulamadı.');
     } finally {

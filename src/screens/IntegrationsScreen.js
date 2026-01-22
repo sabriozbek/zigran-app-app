@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, Alert, Linking, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AppCard from '../components/AppCard';
 import { useTheme } from '../theme/ThemeContext';
 import { integrationsService } from '../api/services/integrationsService';
@@ -63,6 +63,29 @@ function extractUrl(value) {
   return extractUrl(value.data ?? value.result ?? value.payload);
 }
 
+function normalizeProviderKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function categoryOf(raw, fallback) {
+  const cat = pickString(raw?.category, raw?.group, raw?.type, raw?.kind);
+  const s = String(cat || '').toLowerCase();
+  if (['ads', 'advertising', 'reklam'].includes(s)) return 'ads';
+  if (['analytics', 'analitik', 'reporting', 'reports'].includes(s)) return 'analytics';
+  if (['messaging', 'message', 'sms', 'mail', 'email', 'whatsapp', 'chat'].includes(s)) return 'messaging';
+  return fallback || 'other';
+}
+
+function accentOf(category, colors) {
+  if (category === 'ads') return colors.primary;
+  if (category === 'analytics') return '#f97316';
+  if (category === 'messaging') return '#7c3aed';
+  return colors.textSecondary;
+}
+
 const DEFAULT_PROVIDERS = [
   { key: 'google', title: 'Google', subtitle: 'Analytics, Search Console, Ads entegrasyonları', icon: 'logo-google', category: 'analytics', accent: '#2563eb' },
   { key: 'meta', title: 'Meta', subtitle: 'Facebook/Instagram reklam hesapları', icon: 'logo-facebook', category: 'ads', accent: '#1877F2' },
@@ -75,17 +98,69 @@ const DEFAULT_PROVIDERS = [
   { key: 'whatsapp', title: 'WhatsApp', subtitle: 'WhatsApp Business mesajlaşma', icon: 'logo-whatsapp', category: 'messaging', accent: '#25D366' },
 ];
 
-export default function IntegrationsScreen() {
+export default function IntegrationsScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [items, setItems] = useState([]);
   const [activeTab, setActiveTab] = useState('all');
+  const [search, setSearch] = useState('');
+
+  const pushToast = useCallback(
+    (type, message) => {
+      const toast = { type: type || 'success', message: String(message || '') };
+      if (!toast.message) return;
+      const parent = navigation?.getParent?.();
+      if (parent?.setParams) parent.setParams({ toast });
+      else navigation?.setParams?.({ toast });
+    },
+    [navigation],
+  );
 
   const load = useCallback(async () => {
     const raw = await integrationsService.list();
-    const list = normalizeList(raw);
+    let list = normalizeList(raw);
+
+    const hasAnyConnected = list.some((it) => asBool(it?.connected ?? it?.isConnected ?? it?.active ?? it?.enabled ?? it?.status));
+    if (!list.length || !hasAnyConnected) {
+      const results = await Promise.allSettled(DEFAULT_PROVIDERS.map((p) => integrationsService.getStatus(p.key)));
+      const statusItems = [];
+      for (let i = 0; i < results.length; i += 1) {
+        const r = results[i];
+        if (r.status !== 'fulfilled') continue;
+        const payload = r.value;
+        if (!payload) continue;
+        if (Array.isArray(payload)) {
+          statusItems.push(...payload);
+          continue;
+        }
+        statusItems.push({ ...(typeof payload === 'object' ? payload : {}), key: DEFAULT_PROVIDERS[i]?.key });
+      }
+
+      if (statusItems.length) {
+        const byKey = new Map();
+        for (const it of list) {
+          const rawKey = pickString(it?.key, it?.provider, it?.type, it?.name, it?.id);
+          const key = normalizeProviderKey(rawKey);
+          if (!key) continue;
+          byKey.set(key, it);
+        }
+        for (const st of statusItems) {
+          const rawKey = pickString(st?.key, st?.provider, st?.type, st?.name, st?.id);
+          const key = normalizeProviderKey(rawKey);
+          if (!key) continue;
+          const existing = byKey.get(key);
+          if (existing) {
+            byKey.set(key, { ...st, ...existing });
+          } else {
+            byKey.set(key, st);
+          }
+        }
+        list = Array.from(byKey.values());
+      }
+    }
+
     setItems(list);
   }, []);
 
@@ -114,15 +189,27 @@ export default function IntegrationsScreen() {
     }
   }, [load]);
 
+  useEffect(() => {
+    const unsub = navigation?.addListener?.('focus', () => {
+      onRefresh().catch(() => {});
+    });
+    return unsub;
+  }, [navigation, onRefresh]);
+
   const merged = useMemo(() => {
     const byKey = new Map();
     for (const it of items) {
-      const key = pickString(it?.key, it?.provider, it?.type, it?.name, it?.id).toLowerCase();
+      const rawKey = pickString(it?.key, it?.provider, it?.type, it?.name, it?.id);
+      const key = normalizeProviderKey(rawKey);
       if (!key) continue;
       byKey.set(key, it);
     }
-    return DEFAULT_PROVIDERS.map((p) => {
-      const raw = byKey.get(p.key) || byKey.get(p.key.replace('_', '')) || null;
+
+    const used = new Set();
+    const base = DEFAULT_PROVIDERS.map((p) => {
+      const normalized = normalizeProviderKey(p.key);
+      const raw = byKey.get(normalized) || null;
+      if (raw) used.add(normalized);
       const connected = asBool(raw?.connected ?? raw?.isConnected ?? raw?.active ?? raw?.enabled ?? raw?.status);
       const lastSync = pickString(raw?.lastSyncAt, raw?.last_sync_at, raw?.syncedAt, raw?.synced_at, raw?.updatedAt, raw?.updated_at);
       const err = pickString(raw?.error, raw?.lastError, raw?.last_error, raw?.message);
@@ -138,12 +225,44 @@ export default function IntegrationsScreen() {
         connectUrl,
       };
     });
-  }, [items]);
+
+    const extras = [];
+    for (const it of items) {
+      const rawKey = pickString(it?.key, it?.provider, it?.type, it?.name, it?.id);
+      const key = normalizeProviderKey(rawKey);
+      if (!key || used.has(key)) continue;
+      const title = pickString(it?.title, it?.name, it?.provider, it?.type, rawKey) || 'Entegrasyon';
+      const category = categoryOf(it, 'other');
+      const accent = accentOf(category, colors);
+      extras.push({
+        key: pickString(it?.key, it?.provider, it?.type, it?.id, key) || key,
+        title,
+        subtitle: pickString(it?.subtitle, it?.description, it?.desc) || '',
+        icon: pickString(it?.icon, it?.iconName, it?.icon_name) || 'link-outline',
+        category,
+        accent,
+        raw: it,
+        connected: asBool(it?.connected ?? it?.isConnected ?? it?.active ?? it?.enabled ?? it?.status),
+        lastSync: pickString(it?.lastSyncAt, it?.last_sync_at, it?.syncedAt, it?.synced_at, it?.updatedAt, it?.updated_at),
+        err: pickString(it?.error, it?.lastError, it?.last_error, it?.message),
+        accounts: normalizeList(it?.accounts ?? it?.adAccounts ?? it?.items).length,
+        connectUrl: extractUrl(it?.connectUrl ?? it?.oauthUrl ?? it?.authUrl ?? it?.url),
+      });
+    }
+
+    return [...base, ...extras];
+  }, [colors, items]);
 
   const visible = useMemo(() => {
-    if (activeTab === 'all') return merged;
-    return merged.filter((m) => m.category === activeTab);
-  }, [activeTab, merged]);
+    let result = merged;
+    if (activeTab !== 'all') result = result.filter((m) => m.category === activeTab);
+    const q = pickString(search).toLowerCase();
+    if (!q) return result;
+    return result.filter((m) => {
+      const hay = [m?.title, m?.subtitle, m?.key, m?.category].filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  }, [activeTab, merged, search]);
 
   const connect = useCallback(
     async (item) => {
@@ -154,12 +273,12 @@ export default function IntegrationsScreen() {
           await Linking.openURL(url);
           return;
         }
-        Alert.alert('Bağlantı', 'Bağlantı linki alınamadı. Entegrasyon ayarlarınızı kontrol edin.');
+        pushToast('warning', 'Bağlantı linki alınamadı. Entegrasyon ayarlarınızı kontrol edin.');
       } catch {
-        Alert.alert('Hata', 'Bağlantı başlatılamadı.');
+        pushToast('error', 'Bağlantı başlatılamadı.');
       }
     },
-    [],
+    [pushToast],
   );
 
   const disconnect = useCallback(async (item) => {
@@ -173,24 +292,24 @@ export default function IntegrationsScreen() {
             await integrationsService.disconnect(item.key);
             await onRefresh();
           } catch {
-            Alert.alert('Hata', 'Bağlantı kesilemedi.');
+            pushToast('error', 'Bağlantı kesilemedi.');
           }
         },
       },
     ]);
-  }, [onRefresh]);
+  }, [onRefresh, pushToast]);
 
   const syncNow = useCallback(
     async (item) => {
       try {
         await integrationsService.sync(item.key);
-        Alert.alert('Senkronizasyon', 'Senkronizasyon başlatıldı.');
+        pushToast('success', 'Senkronizasyon başlatıldı.');
         await onRefresh();
       } catch {
-        Alert.alert('Hata', 'Senkronizasyon başlatılamadı.');
+        pushToast('error', 'Senkronizasyon başlatılamadı.');
       }
     },
-    [onRefresh],
+    [onRefresh, pushToast],
   );
 
   if (loading) {
@@ -233,6 +352,23 @@ export default function IntegrationsScreen() {
                 );
               })}
             </ScrollView>
+          </View>
+
+          <View style={styles.searchWrap}>
+            <Ionicons name={safeIoniconName('search-outline', 'search-outline')} size={16} color={colors.textSecondary} />
+            <TextInput
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Ara: entegrasyon, kategori…"
+              placeholderTextColor={colors.textSecondary}
+              style={styles.searchInput}
+              autoCapitalize="none"
+            />
+            {search ? (
+              <TouchableOpacity style={styles.clearBtn} onPress={() => setSearch('')} activeOpacity={0.85}>
+                <Ionicons name={safeIoniconName('close', 'close')} size={16} color={colors.textSecondary} />
+              </TouchableOpacity>
+            ) : null}
           </View>
         </AppCard>
 
@@ -332,6 +468,10 @@ function createStyles(colors) {
     tabPillText: { color: colors.textSecondary, fontWeight: '900', fontSize: 12 },
     tabPillTextActive: { color: '#fff' },
 
+    searchWrap: { marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10 },
+    searchInput: { flex: 1, minWidth: 0, color: colors.textPrimary, fontWeight: '800' },
+    clearBtn: { width: 28, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+
     sectionTitle: { color: colors.textPrimary, fontWeight: '900', fontSize: 15 },
 
     grid: { gap: 12 },
@@ -361,4 +501,3 @@ function createStyles(colors) {
     dangerBtn: { borderColor: colors.error + '3A', backgroundColor: colors.error + '10' },
   });
 }
-

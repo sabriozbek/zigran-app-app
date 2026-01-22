@@ -185,9 +185,20 @@ function emptyDraft() {
   };
 }
 
-export default function AutomationsScreen() {
+export default function AutomationsScreen({ navigation }) {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+
+  const pushToast = useCallback(
+    (type, message) => {
+      const toast = { type: type || 'success', message: String(message || '') };
+      if (!toast.message) return;
+      const parent = navigation?.getParent?.();
+      if (parent?.setParams) parent.setParams({ toast });
+      else navigation?.setParams?.({ toast });
+    },
+    [navigation],
+  );
 
   const [activeTab, setActiveTab] = useState('flows');
   const [loading, setLoading] = useState(true);
@@ -521,13 +532,13 @@ export default function AutomationsScreen() {
         leadId: String(executeLeadId || '').trim() || undefined,
         payload: payloadParsed.value || undefined,
       });
-      Alert.alert('Başarılı', 'Çalıştırma tetiklendi.');
+      pushToast('success', 'Çalıştırma tetiklendi.');
     } catch {
       Alert.alert('Hata', 'Çalıştırma başarısız.');
     } finally {
       setExecuting(false);
     }
-  }, [executeLeadId, executePayloadText, executeType]);
+  }, [executeLeadId, executePayloadText, executeType, pushToast]);
 
   if (loading) {
     return (

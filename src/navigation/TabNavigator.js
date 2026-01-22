@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { Animated, Dimensions, Image, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Dimensions, Image, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigationState } from '@react-navigation/native';
 import { IconButton } from 'react-native-paper';
 import DashboardScreen from '../screens/DashboardScreen';
@@ -71,6 +71,7 @@ const TabNavigator = ({ navigation, route }) => {
   const [activeRouteName, setActiveRouteName] = useState('Dashboard');
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsCount, setNotificationsCount] = useState(0);
+  const [infoOpen, setInfoOpen] = useState(false);
   const [me, setMe] = useState(null);
   const [toast, setToast] = useState(null);
   const menuWidth = useMemo(() => Math.min(320, Math.round(Dimensions.get('window').width * 0.82)), []);
@@ -561,7 +562,13 @@ const TabNavigator = ({ navigation, route }) => {
           pointerEvents="none"
           style={[
             styles.toast,
-            toast.type === 'success' ? styles.toastSuccess : styles.toastInfo,
+            toast.type === 'success'
+              ? styles.toastSuccess
+              : toast.type === 'error'
+                ? styles.toastError
+                : toast.type === 'warning'
+                  ? styles.toastWarning
+                  : styles.toastInfo,
             {
               opacity: toastAnim,
               transform: [{ translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }],
@@ -570,12 +577,28 @@ const TabNavigator = ({ navigation, route }) => {
         >
           <View style={styles.toastIconWrap}>
             <Ionicons
-              name={toast.type === 'success' ? 'checkmark-circle' : 'information-circle'}
+              name={
+                toast.type === 'success'
+                  ? 'checkmark-circle'
+                  : toast.type === 'error'
+                    ? 'close-circle'
+                    : toast.type === 'warning'
+                      ? 'alert-circle'
+                      : 'information-circle'
+              }
               size={18}
-              color={toast.type === 'success' ? colors.success : colors.primary}
+              color={
+                toast.type === 'success'
+                  ? colors.success
+                  : toast.type === 'error'
+                    ? colors.error
+                    : toast.type === 'warning'
+                      ? colors.warning
+                      : colors.primary
+              }
             />
           </View>
-          <Text style={styles.toastText} numberOfLines={2}>
+          <Text style={styles.toastText} numberOfLines={3}>
             {toast.message}
           </Text>
         </Animated.View>
@@ -829,6 +852,9 @@ const TabNavigator = ({ navigation, route }) => {
             <Text style={styles.brandTitle}>Zigran</Text>
             {companyName ? <Text style={styles.brandSubtitle}>{String(companyName)}</Text> : null}
           </View>
+          <TouchableOpacity style={styles.infoBtn} activeOpacity={0.85} onPress={() => setInfoOpen(true)}>
+            <Ionicons name={safeIoniconName('information-circle-outline', 'information-circle-outline')} size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.userCard}>
@@ -920,6 +946,102 @@ const TabNavigator = ({ navigation, route }) => {
           })}
         </ScrollView>
 
+
+      <Modal visible={infoOpen} transparent animationType="fade" onRequestClose={() => setInfoOpen(false)}>
+        <Pressable style={styles.infoBackdrop} onPress={() => setInfoOpen(false)} />
+        <View style={styles.infoModalWrap} pointerEvents="box-none">
+          <View style={styles.infoModalCard}>
+            <View style={styles.infoModalHeader}>
+              <View style={styles.infoModalTitleRow}>
+                <View style={styles.infoModalIcon}>
+                  <Ionicons name={safeIoniconName('information-circle', 'information-circle')} size={18} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.infoModalTitle} numberOfLines={1}>
+                    İletişim & Destek
+                  </Text>
+                  <Text style={styles.infoModalSubtitle} numberOfLines={1}>
+                    Canlı destek, e‑posta ve destek talebi
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity style={styles.infoCloseBtn} onPress={() => setInfoOpen(false)} activeOpacity={0.85}>
+                <Ionicons name={safeIoniconName('close', 'close')} size={18} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.infoBody}>
+              <View style={styles.infoSection}>
+                <View style={styles.infoKvRow}>
+                  <Text style={styles.infoK}>E‑posta</Text>
+                  <Text style={styles.infoV} numberOfLines={1}>
+                    {String(company?.email || company?.supportEmail || 'info@zigran.com')}
+                  </Text>
+                </View>
+                <View style={styles.infoKvRow}>
+                  <Text style={styles.infoK}>Telefon</Text>
+                  <Text style={styles.infoV} numberOfLines={1}>
+                    {String(company?.phone || company?.supportPhone || '—')}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.infoActions}>
+                <TouchableOpacity
+                  style={styles.infoPrimaryBtn}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    const email = String(company?.email || company?.supportEmail || 'info@zigran.com');
+                    setInfoOpen(false);
+                    Linking.openURL(`mailto:${encodeURIComponent(email)}`).catch(() => {});
+                  }}
+                >
+                  <Ionicons name={safeIoniconName('mail-outline', 'mail-outline')} size={16} color="#fff" />
+                  <Text style={styles.infoPrimaryText}>E‑posta</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.infoOutlineBtn}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    setInfoOpen(false);
+                    Linking.openURL('https://wa.me/?text=Merhaba%20Zigran%20destek').catch(() => {});
+                  }}
+                >
+                  <Ionicons name={safeIoniconName('logo-whatsapp', 'chatbubble-ellipses-outline')} size={16} color={colors.textPrimary} />
+                  <Text style={styles.infoOutlineText}>WhatsApp Canlı Destek</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.infoOutlineBtn}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    setInfoOpen(false);
+                    setMenuOpen(false);
+                    handleNavigate('Tickets');
+                  }}
+                >
+                  <Ionicons name={safeIoniconName('help-circle-outline', 'help-circle-outline')} size={16} color={colors.textPrimary} />
+                  <Text style={styles.infoOutlineText}>Destek Talebi Oluştur</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.infoOutlineBtn}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    setInfoOpen(false);
+                    setMenuOpen(false);
+                    handleNavigate('Settings', { tab: 'notifications' });
+                  }}
+                >
+                  <Ionicons name={safeIoniconName('notifications-outline', 'notifications-outline')} size={16} color={colors.textPrimary} />
+                  <Text style={styles.infoOutlineText}>Canlı Bildirim Ayarları</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
       </Animated.View>
     </View>
   );
@@ -945,6 +1067,11 @@ function createStyles(colors) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 10,
+      shadowColor: '#000',
+      shadowOpacity: 0.16,
+      shadowRadius: 18,
+      shadowOffset: { width: 0, height: 10 },
+      elevation: 12,
     },
     toastSuccess: {
       backgroundColor: colors.surface,
@@ -953,6 +1080,14 @@ function createStyles(colors) {
     toastInfo: {
       backgroundColor: colors.surface,
       borderColor: colors.primary + '33',
+    },
+    toastWarning: {
+      backgroundColor: colors.surface,
+      borderColor: colors.warning + '33',
+    },
+    toastError: {
+      backgroundColor: colors.surface,
+      borderColor: colors.error + '33',
     },
     toastIconWrap: {
       width: 34,
@@ -1131,6 +1266,155 @@ function createStyles(colors) {
       marginTop: 2,
       fontSize: 12,
       fontWeight: '700',
+    },
+    infoBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    infoBackdrop: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      backgroundColor: colors.textPrimary === '#0F172A' ? 'rgba(15, 23, 42, 0.45)' : 'rgba(0,0,0,0.55)',
+    },
+    infoModalWrap: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 18,
+    },
+    infoModalCard: {
+      width: '100%',
+      maxWidth: 420,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      overflow: 'hidden',
+    },
+    infoModalHeader: {
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+    },
+    infoModalTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      flex: 1,
+      minWidth: 0,
+    },
+    infoModalIcon: {
+      width: 34,
+      height: 34,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.primary + '14',
+      borderWidth: 1,
+      borderColor: colors.primary + '2A',
+    },
+    infoModalTitle: {
+      color: colors.textPrimary,
+      fontWeight: '900',
+      fontSize: 14,
+    },
+    infoModalSubtitle: {
+      marginTop: 2,
+      color: colors.textSecondary,
+      fontWeight: '700',
+      fontSize: 12,
+    },
+    infoCloseBtn: {
+      width: 34,
+      height: 34,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    infoBody: {
+      padding: 14,
+      gap: 12,
+    },
+    infoSection: {
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+      padding: 12,
+      gap: 10,
+    },
+    infoKvRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 10,
+    },
+    infoK: {
+      color: colors.textSecondary,
+      fontWeight: '900',
+      fontSize: 12,
+    },
+    infoV: {
+      color: colors.textPrimary,
+      fontWeight: '900',
+      fontSize: 12,
+      maxWidth: '70%',
+      textAlign: 'right',
+    },
+    infoActions: {
+      gap: 10,
+    },
+    infoPrimaryBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      backgroundColor: colors.primary,
+      borderRadius: 14,
+      paddingVertical: 12,
+    },
+    infoPrimaryText: {
+      color: '#fff',
+      fontWeight: '900',
+      fontSize: 13,
+    },
+    infoOutlineBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+      paddingVertical: 12,
+      paddingHorizontal: 12,
+    },
+    infoOutlineText: {
+      color: colors.textPrimary,
+      fontWeight: '900',
+      fontSize: 13,
     },
     userCard: {
       marginHorizontal: 12,

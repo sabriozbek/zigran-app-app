@@ -1,35 +1,15 @@
-import apiClient from './client';
+import { contactsService } from './services/contactsService';
 
 export const crmService = {
-  // Müşterileri Getir
-  getCustomers: async () => {
-    try {
-      const response = await apiClient.get('/customers');
-      // API'den dönen verinin yapısına göre burayı düzenliyoruz.
-      // Örn: response.data veya response.data.data
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+  getCustomers: async (params = {}) => {
+    return contactsService.getAll(params);
   },
 
-  // Müşteri Detayı Getir (İleride kullanılabilir)
   getCustomerDetails: async (id) => {
-    try {
-      const response = await apiClient.get(`/customers/${id}`);
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+    return contactsService.getOne(id);
   },
 
-  // Yeni Müşteri Ekle
   addCustomer: async (customerData) => {
-    try {
-      const response = await apiClient.post('/customers', customerData);
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+    return contactsService.create(customerData);
   }
 };

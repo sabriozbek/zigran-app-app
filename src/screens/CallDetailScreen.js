@@ -19,6 +19,43 @@ function safeString(v) {
   return String(v ?? '').trim();
 }
 
+function pickString(...values) {
+  for (const v of values) {
+    if (typeof v === 'string' && v.trim()) return v.trim();
+    if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  }
+  return '';
+}
+
+function getCallContactLabel(call) {
+  const first = pickString(call?.contact?.firstName, call?.contact?.first_name, call?.firstName, call?.first_name);
+  const last = pickString(call?.contact?.lastName, call?.contact?.last_name, call?.lastName, call?.last_name);
+  const fullFromParts = pickString([first, last].filter(Boolean).join(' '));
+  const name =
+    pickString(
+      call?.contactName,
+      call?.contact_name,
+      call?.contact?.name,
+      call?.contact?.fullName,
+      call?.contact?.full_name,
+      fullFromParts,
+      call?.leadName,
+      call?.lead_name,
+      call?.lead?.name,
+      call?.customerName,
+      call?.customer_name,
+      call?.customer?.name,
+      call?.personName,
+      call?.person_name,
+    ) || '';
+  if (name) return name;
+  const phone = pickString(call?.phone, call?.to, call?.from);
+  if (phone) return phone;
+  const company = pickString(call?.companyName, call?.company_name, call?.company?.name);
+  if (company) return company;
+  return 'Bilinmeyen Kişi';
+}
+
 function formatDate(value) {
   if (!value) return '';
   try {
@@ -75,7 +112,7 @@ export default function CallDetailScreen({ navigation, route }) {
 
   const subject = safeString(call?.subject) || 'Arama';
   const status = safeString(call?.status ?? call?.state) || 'planned';
-  const contact = safeString(call?.contactName ?? call?.contact_name) || 'Bilinmeyen Kişi';
+  const contact = getCallContactLabel(call);
   const company = safeString(call?.companyName ?? call?.company_name);
   const phone = safeString(call?.phone);
   const duration = call?.duration === undefined || call?.duration === null ? '' : `${String(call.duration)} sn`;
@@ -302,4 +339,3 @@ function createStyles(colors) {
     emptyTitle: { color: colors.textSecondary, fontWeight: '800' },
   });
 }
-

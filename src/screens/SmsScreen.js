@@ -37,10 +37,21 @@ function formatDate(value) {
   return dt.toLocaleString('tr-TR', { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-export default function SmsScreen() {
+export default function SmsScreen({ navigation }) {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const [activeTab, setActiveTab] = useState('send');
+
+  const pushToast = useCallback(
+    (type, message) => {
+      const toast = { type: type || 'success', message: String(message || '') };
+      if (!toast.message) return;
+      const parent = navigation?.getParent?.();
+      if (parent?.setParams) parent.setParams({ toast });
+      else navigation?.setParams?.({ toast });
+    },
+    [navigation],
+  );
 
   const [to, setTo] = useState('');
   const [message, setMessage] = useState('');
@@ -101,7 +112,7 @@ export default function SmsScreen() {
     try {
       const res = await smsService.send({ to: dest, message: body });
       if (res?.ok) {
-        Alert.alert('Başarılı', 'SMS gönderildi.');
+        pushToast('success', 'SMS gönderildi.');
         setTo('');
         setMessage('');
         setActiveTab('logs');
@@ -114,7 +125,7 @@ export default function SmsScreen() {
     } finally {
       setSending(false);
     }
-  }, [loadLogs, message, to]);
+  }, [loadLogs, message, pushToast, to]);
 
   const header = useMemo(() => {
     return (
